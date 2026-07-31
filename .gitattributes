@@ -1,0 +1,9 @@
+# Normalize to LF in the repository and on checkout.
+* text=auto eol=lf
+
+# Diff fixtures are parsed byte-for-byte: line-ending conversion would change
+# hunk contents and break the parser on a machine with different settings.
+*.diff -text
+
+*.png binary
+*.ico binary
