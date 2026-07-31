@@ -1,0 +1,54 @@
+[project]
+name = "reviewhive"
+version = "0.1.0"
+description = "Multi-agent AI code review bot for GitHub pull requests"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic==0.120.2",
+    "langgraph==1.2.10",
+    "unidiff==1.0.0",
+    "pydantic==2.12.3",
+    "pydantic-settings==2.12.0",
+]
+
+[project.optional-dependencies]
+# Added in Phase 2/3. Kept separate so Phase 1 installs stay small.
+service = [
+    "fastapi==0.121.2",
+    "uvicorn[standard]==0.40.0",
+    "httpx==0.28.1",
+    "sqlalchemy[asyncio]==2.0.44",
+    "asyncpg==0.30.0",
+    "alembic==1.16.6",
+]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.3.0",
+    "pytest-cov==7.0.0",
+    "ruff==0.14.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reviewhive"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = [
+    "live: hits the real Anthropic API and costs money; deselected by default",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.coverage.run]
+source = ["src/reviewhive"]
