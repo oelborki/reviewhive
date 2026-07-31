@@ -1,0 +1,118 @@
+"""An in-memory stand-in for `AsyncAnthropic`.
+
+The graph takes its client as a constructor argument, so tests hand it one of these
+and need no monkeypatching. It records every call, can simulate latency (which is
+how `test_graph.py` proves the fan-out is genuinely concurrent), and can be told to
+fail or refuse for a given agent.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+
+import httpx
+from anthropic import APIStatusError
+
+from reviewhive.models import AgentFindings, Finding
+
+AGENT_MARKERS = {
+    "security and correctness": "security",
+    "style, readability": "style",
+    "structure, abstraction": "architecture",
+}
+
+
+def identify_agent(system_prompt: str) -> str:
+    """Work out which agent is calling from its specialty section."""
+    lowered = system_prompt.lower()
+    for marker, name in AGENT_MARKERS.items():
+        if marker in lowered:
+            return name
+    return "unknown"
+
+
+@dataclass
+class StubAnthropic:
+    """Quacks like `AsyncAnthropic` for the two methods the app uses."""
+
+    responses: dict[str, list[Finding]] = field(default_factory=dict)
+    latency: float = 0.0
+    tokens_per_call: int = 100
+    errors: dict[str, Exception] = field(default_factory=dict)
+    refusals: set[str] = field(default_factory=set)
+
+    parse_calls: list[str] = field(default_factory=list)
+    count_calls: list[str] = field(default_factory=list)
+    max_concurrent: int = 0
+    _in_flight: int = 0
+
+    def __post_init__(self) -> None:
+        self.messages = SimpleNamespace(parse=self._parse, count_tokens=self._count_tokens)
+
+    async def _parse(self, *, system: str, output_format=None, **_kwargs):
+        agent = identify_agent(system)
+        self.parse_calls.append(agent)
+
+        self._in_flight += 1
+        self.max_concurrent = max(self.max_concurrent, self._in_flight)
+        try:
+            if self.latency:
+                await asyncio.sleep(self.latency)
+            if agent in self.errors:
+                raise self.errors[agent]
+
+            findings = self.responses.get(agent, [])
+            return SimpleNamespace(
+                parsed_output=AgentFindings(findings=findings),
+                stop_reason="refusal" if agent in self.refusals else "end_turn",
+                usage=SimpleNamespace(
+                    input_tokens=self.tokens_per_call,
+                    output_tokens=len(findings) * 50,
+                    cache_read_input_tokens=0,
+                ),
+            )
+        finally:
+            self._in_flight -= 1
+
+    async def _count_tokens(self, *, messages, **_kwargs):
+        text = messages[0]["content"]
+        self.count_calls.append(text)
+        return SimpleNamespace(input_tokens=max(1, len(text) // 4))
+
+
+def overloaded_error() -> APIStatusError:
+    """A realistic 529 from the API.
+
+    `APIStatusError` reads `response.request`, so it cannot be built from None —
+    constructing it properly here keeps that detail out of every test.
+    """
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return APIStatusError(
+        "Overloaded",
+        response=httpx.Response(529, request=request),
+        body={"type": "error", "error": {"type": "overloaded_error"}},
+    )
+
+
+def finding(
+    *,
+    file: str = "src/app/auth.py",
+    line: int | None = 13,
+    severity: str = "high",
+    category: str = "sql-injection",
+    title: str = "SQL query built by string concatenation",
+    body: str = "Use a parameterised query instead.",
+    confidence: float = 0.9,
+) -> Finding:
+    """Terse Finding builder so tests state only what they care about."""
+    return Finding(
+        file=file,
+        line=line,
+        severity=severity,  # type: ignore[arg-type]
+        category=category,
+        title=title,
+        body=body,
+        confidence=confidence,
+    )
