@@ -1,0 +1,63 @@
+diff --git a/src/app/auth.py b/src/app/auth.py
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/app/auth.py
++++ b/src/app/auth.py
+@@ -10,6 +10,10 @@ from app.db import connection
+
+ def find_user(username):
+     cur = connection.cursor()
+-    cur.execute("SELECT * FROM users WHERE name = %s", (username,))
++    cur.execute("SELECT * FROM users WHERE name = '" + username + "'")
+     return cur.fetchone()
+
++
++def check_password(user, password):
++    return user["password"] == password
++
+@@ -40,4 +44,6 @@ def logout(session):
+     session.clear()
+
+
++API_TOKEN = "sk-live-9f8a7b6c5d4e3f2a1b0c"
++
+ def healthcheck():
+diff --git a/package-lock.json b/package-lock.json
+index aaaaaaa..bbbbbbb 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,5 +1,5 @@
+ {
+   "name": "demo",
+-  "version": "1.0.0",
++  "version": "1.0.1",
+   "lockfileVersion": 3
+ }
+diff --git a/assets/logo.png b/assets/logo.png
+index 1111111..2222222 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ
+diff --git a/src/app/old_utils.py b/src/app/helpers.py
+similarity index 87%
+rename from src/app/old_utils.py
+rename to src/app/helpers.py
+index 3333333..4444444 100644
+--- a/src/app/old_utils.py
++++ b/src/app/helpers.py
+@@ -1,5 +1,6 @@
+ import os
+
+
+-def read_config(path):
+-    return open(path).read()
++def read_config(path):
++    with open(path) as fh:
++        return fh.read()
+diff --git a/src/app/legacy.py b/src/app/legacy.py
+deleted file mode 100644
+index 5555555..0000000
+--- a/src/app/legacy.py
++++ /dev/null
+@@ -1,4 +0,0 @@
+-def deprecated():
+-    """No longer used."""
+-    return None
+-
