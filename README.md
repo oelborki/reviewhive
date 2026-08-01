@@ -79,8 +79,21 @@ git diff main... > /tmp/pr.diff
 python scripts/review_local.py /tmp/pr.diff -v
 ```
 
-Cost is roughly **$0.03 per pull request** on `claude-haiku-4-5`; the CLI prints
-the exact figure and per-agent latency for every run.
+Iterating on a prompt? Run one agent instead of three — a third of the cost, and
+only one variable moving:
+
+```bash
+python scripts/probe_agent.py style tests/fixtures/diffs/mixed_rich.diff
+```
+
+Probe against a diff carrying real material for the agent under test.
+`style_only.diff` and `mixed_rich.diff` are identical but for two vulnerabilities,
+so the pair separates an agent straying because security is eye-catching from one
+straying because its own lane is empty.
+
+Cost is **$0.012–$0.015 per pull request** on `claude-haiku-4-5`, measured across
+several runs of `mixed.diff`; both scripts print the exact figure and per-agent
+latency for every run.
 
 ## Tests
 
