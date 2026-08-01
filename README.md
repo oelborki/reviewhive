@@ -1,4 +1,4 @@
-# reviewHive
+# ReviewHive
 
 A multi-agent AI code reviewer for GitHub pull requests. Three specialized agents
 examine the diff **in parallel**, their findings are deduplicated and ranked, and
