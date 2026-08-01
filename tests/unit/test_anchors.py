@@ -8,6 +8,7 @@ from reviewhive.models import MergedFinding
 def diff_file(path: str, added: set[int], context: set[int] | None = None) -> DiffFile:
     hunk = DiffHunk(
         text="",
+        numbered_text="",
         added_lines=frozenset(added),
         context_lines=frozenset(context or ()),
         removed_lines=frozenset(),

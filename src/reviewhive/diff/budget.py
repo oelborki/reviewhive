@@ -80,7 +80,9 @@ def classify_noise(path: str) -> str | None:
 
 
 def render_prompt(files: list[DiffFile]) -> str:
-    return "\n".join(f.text for f in files)
+    """Every new-file line carries its number, so the model reads an anchor rather
+    than counting one. The budget is measured against this same rendering."""
+    return "\n".join(f.numbered_text for f in files)
 
 
 async def build_budget(
@@ -139,7 +141,7 @@ async def _fit_to_budget(
     twenty. Per-file counts are measured concurrently, once, rather than
     re-counting the whole prompt after every drop.
     """
-    sizes = await asyncio.gather(*(count_tokens(f.text) for f in files))
+    sizes = await asyncio.gather(*(count_tokens(f.numbered_text) for f in files))
     by_size = sorted(zip(files, sizes, strict=True), key=lambda pair: pair[1], reverse=True)
 
     total = sum(sizes)

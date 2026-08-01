@@ -64,6 +64,10 @@ def _file(path: str, hunk_count: int, lines_per_hunk: int = 10) -> DiffFile:
     hunks = tuple(
         DiffHunk(
             text=f"@@ hunk {i} of {path} @@\n" + ("+line\n" * lines_per_hunk),
+            # Wider than `text`, as the real rendering is — the budget is measured
+            # against the numbered form, so the stand-in has to carry a gutter too.
+            numbered_text=f"@@ hunk {i} of {path} @@\n"
+            + "".join(f"{i * 100 + n:>5} +line\n" for n in range(lines_per_hunk)),
             added_lines=frozenset(range(i * 100, i * 100 + lines_per_hunk)),
             context_lines=frozenset(),
             removed_lines=frozenset(),
