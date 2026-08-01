@@ -75,6 +75,33 @@ def test_known_limitation_short_titles_sharing_filler_can_collide() -> None:
     assert jaccard(function_issue, class_issue) > 0.5
 
 
+def test_hyphenated_compound_matches_its_unhyphenated_spelling() -> None:
+    """Agents disagree on the spelling of the same compound within one review."""
+    assert title_tokens("Hard-coded secret") == title_tokens("Hardcoded secret")
+
+
+def test_a_spaced_dash_still_separates_words() -> None:
+    """Only an intra-word hyphen joins. A dash used as punctuation must not glue
+    its neighbours into one token."""
+    assert title_tokens("Token exposed - move to env") == frozenset(
+        {"token", "exposed", "move", "env"}
+    )
+
+
+def test_known_limitation_hyphenated_phrases_stop_matching_their_spaced_form() -> None:
+    """The cost of joining hyphen halves, accepted deliberately.
+
+    A hyphen spanning two independent words ("SQL-injection risk") now yields one
+    joined token that no longer matches the spaced spelling ("SQL injection
+    risk"). That direction produces a missed merge — a duplicate survives — while
+    the compound case it fixes was also a missed merge, and is the one observed
+    against a live model. Both failures are duplicates rather than false merges,
+    so the trade is between two equal-severity misses, resolved in favour of the
+    one that actually happens.
+    """
+    assert jaccard(title_tokens("SQL-injection risk"), title_tokens("SQL injection risk")) < 0.5
+
+
 def test_jaccard_of_disjoint_titles_is_zero() -> None:
     assert jaccard(title_tokens("SQL injection risk"), title_tokens("Poor naming choice")) == 0.0
 
@@ -91,6 +118,20 @@ class TestCollapse:
         assert len(result) == 1
         assert result[0].sources == ["security", "architecture"]
         assert result[0].agreement == 2
+
+    def test_hyphenation_alone_does_not_prevent_a_merge(self) -> None:
+        """Regression: the two titles below are the ones a live review produced for
+        a single hardcoded token. Splitting on the hyphen scored them 0.375 and
+        left the duplicate in the posted review."""
+        result = collapse(
+            [
+                merged(source="security", line=47, title="Hardcoded API token in source code"),
+                merged(source="style", line=47, title="Hard-coded API token exposed in source"),
+            ]
+        )
+
+        assert len(result) == 1
+        assert result[0].sources == ["security", "style"]
 
     def test_merge_keeps_highest_severity(self) -> None:
         result = collapse(

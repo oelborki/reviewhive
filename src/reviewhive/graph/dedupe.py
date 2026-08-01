@@ -37,6 +37,14 @@ STOPWORDS = frozenset(
 
 _WORD = re.compile(r"[a-z0-9_]+")
 
+# Models spell the same compound both ways in a single review — "Hardcoded API
+# token" from one agent, "Hard-coded API token" from another. Splitting on the
+# hyphen turns one shared token into two unshared ones, which cost that observed
+# pair enough overlap (0.375) to miss the 0.5 threshold. Joining the halves
+# instead makes the two spellings identical. Only an intra-word hyphen is
+# removed, so a spaced dash used as punctuation still separates words.
+_INTRAWORD_HYPHEN = re.compile(r"(?<=[a-z0-9])-(?=[a-z0-9])")
+
 
 @dataclass
 class _Cluster:
@@ -65,7 +73,8 @@ def normalize_path(path: str) -> str:
 
 
 def title_tokens(title: str) -> frozenset[str]:
-    return frozenset(w for w in _WORD.findall(title.lower()) if w not in STOPWORDS)
+    joined = _INTRAWORD_HYPHEN.sub("", title.lower())
+    return frozenset(w for w in _WORD.findall(joined) if w not in STOPWORDS)
 
 
 def jaccard(left: frozenset[str], right: frozenset[str]) -> float:
