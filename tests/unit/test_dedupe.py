@@ -159,16 +159,36 @@ class TestCollapse:
         assert result[0].title == "Duplicated parsing logic across modules"
         assert result[0].category == "duplication"
 
-    def test_agreement_raises_confidence_but_is_capped(self) -> None:
+    def test_agreement_does_not_raise_confidence(self) -> None:
+        """The agents are not independent observers — single-agent probes show they
+        converge on whatever is most salient in the diff, so a second report is the
+        same observation restated. Confidence is the most confident member's, full
+        stop."""
         result = collapse(
             [
-                merged(source="security", confidence=0.99, title="Duplicated parsing logic"),
+                merged(source="security", confidence=0.9, title="Duplicated parsing logic"),
                 merged(source="style", confidence=0.5, title="Duplicated parsing logic"),
                 merged(source="architecture", confidence=0.5, title="Duplicated parsing logic"),
             ]
         )
 
-        assert result[0].confidence == 1.0
+        assert result[0].agreement == 3
+        assert result[0].confidence == 0.9
+
+    def test_a_reviewer_outside_its_lane_cannot_promote_the_finding_it_duplicates(self) -> None:
+        """The failure this guards against. The architecture reviewer files a
+        security finding at high confidence; it merges with security's own copy.
+        Under the old bonus that scope violation pushed the finding's confidence up
+        and its rank with it — a duplicate masquerading as corroboration."""
+        solo = merged(source="security", confidence=0.95, title="Token hardcoded in source")
+        poached = collapse(
+            [
+                merged(source="security", confidence=0.95, title="Token hardcoded in source"),
+                merged(source="architecture", confidence=0.95, title="Token hardcoded in source"),
+            ]
+        )[0]
+
+        assert poached.confidence == solo.confidence
 
     def test_merged_line_is_the_earliest_reported(self) -> None:
         result = collapse(
@@ -262,7 +282,10 @@ class TestCollapse:
 
 
 class TestRankAndCut:
-    def test_orders_by_severity_then_agreement_then_confidence(self) -> None:
+    def test_orders_by_severity_then_confidence_then_agreement(self) -> None:
+        """A second reviewer is a tiebreaker, not a trump card. Two agents at 0.6
+        do not outrank one agent at 0.9, because the second report is usually the
+        same observation restated rather than a second opinion."""
         low = merged(severity="low", title="Low one", file="c.py")
         high_solo = merged(severity="high", title="High solo", file="b.py", confidence=0.9)
         high_agreed = merged(severity="high", title="High agreed", file="a.py", confidence=0.6)
@@ -270,7 +293,16 @@ class TestRankAndCut:
 
         ranked, _ = rank_and_cut([low, high_solo, high_agreed], min_confidence=0.0, max_posted=10)
 
-        assert [f.title for f in ranked] == ["High agreed", "High solo", "Low one"]
+        assert [f.title for f in ranked] == ["High solo", "High agreed", "Low one"]
+
+    def test_agreement_breaks_ties_between_equally_confident_findings(self) -> None:
+        solo = merged(severity="high", title="Solo", file="b.py", confidence=0.8)
+        agreed = merged(severity="high", title="Agreed", file="c.py", confidence=0.8)
+        agreed = agreed.model_copy(update={"sources": ["security", "style"]})
+
+        ranked, _ = rank_and_cut([solo, agreed], min_confidence=0.0, max_posted=10)
+
+        assert [f.title for f in ranked] == ["Agreed", "Solo"]
 
     def test_filters_below_confidence_floor(self) -> None:
         ranked, suppressed = rank_and_cut(

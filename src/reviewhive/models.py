@@ -78,7 +78,10 @@ class MergedFinding(BaseModel):
     body: str
     confidence: float
     sources: list[AgentName] = Field(
-        description="Agents that independently raised this. Length > 1 means agreement."
+        description=(
+            "Agents that raised this. Length > 1 records who, not that the reports "
+            "were independent — the reviewers see the same diff and converge."
+        )
     )
 
     @property

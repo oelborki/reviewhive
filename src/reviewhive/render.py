@@ -27,10 +27,11 @@ AGENT_LABEL = {
 
 def render_comment(finding: MergedFinding) -> str:
     """The body of one inline review comment."""
+    # "independently" would be a claim we cannot support: the reviewers see the
+    # same diff and converge on the same salient defects, so a second report is
+    # not an independent confirmation. State who raised it and let the reader judge.
     agreement = (
-        f" · flagged independently by {len(finding.sources)} reviewers"
-        if len(finding.sources) > 1
-        else ""
+        f" · raised by {len(finding.sources)} reviewers" if len(finding.sources) > 1 else ""
     )
     attribution = ", ".join(AGENT_LABEL.get(s, s) for s in finding.sources)
 

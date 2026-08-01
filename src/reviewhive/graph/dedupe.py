@@ -138,8 +138,9 @@ def _merge(cluster: _Cluster) -> MergedFinding:
     """Pick a representative and union the provenance.
 
     The representative is the most severe member, breaking ties on confidence —
-    the sharpest statement of the issue survives, and agreement is recorded
-    separately in `sources` so ranking can reward it.
+    the sharpest statement of the issue survives. `sources` records who raised it
+    as provenance for the reader, not as evidence: see the note on confidence
+    below.
     """
     if len(cluster.members) == 1:
         return cluster.members[0]
@@ -157,10 +158,13 @@ def _merge(cluster: _Cluster) -> MergedFinding:
 
     severity: Severity = max((m.severity for m in cluster.members), key=lambda s: SEVERITY_RANK[s])
 
-    # Independent agreement is evidence, so confidence rises with it — but only a
-    # little, because three agents can be confidently wrong about the same thing.
-    peak = max(m.confidence for m in cluster.members)
-    confidence = min(1.0, peak + 0.05 * (len(sources) - 1))
+    # Confidence is not raised by agreement. Doing so would treat the agents as
+    # independent observers, and single-agent probes show they are not: they
+    # converge on whatever defect is most salient in the diff, so a second report
+    # is usually the same observation restated rather than corroboration. Worse,
+    # a reviewer straying outside its specialty produces exactly that shape, which
+    # would let a scope violation promote the finding it duplicates.
+    confidence = max(m.confidence for m in cluster.members)
 
     return MergedFinding(
         file=cluster.path,
@@ -192,12 +196,16 @@ def rank_and_cut(
     Returns the findings to post and how many were dropped, so the summary can say
     "and 4 more" rather than silently hiding them.
     """
+    # Confidence outranks agreement. A second reviewer raising the same issue is
+    # weak evidence at best — the agents converge on salient defects rather than
+    # observing independently — so it breaks ties between equally confident
+    # findings rather than overriding a more confident one.
     surviving = [f for f in findings if f.confidence >= min_confidence]
     surviving.sort(
         key=lambda f: (
             -SEVERITY_RANK[f.severity],
-            -f.agreement,
             -f.confidence,
+            -f.agreement,
             f.file,
             f.line if f.line is not None else 0,
         )

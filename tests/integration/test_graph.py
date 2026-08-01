@@ -61,7 +61,7 @@ async def test_overlapping_findings_are_merged_with_provenance(diff_text, settin
     merged = result.findings[0]
     assert sorted(merged.sources) == ["architecture", "security"]
     assert merged.severity == "high", "merged finding keeps the highest severity"
-    assert merged.confidence > 0.9, "independent agreement raises confidence"
+    assert merged.confidence == 0.9, "agreement is provenance, not evidence: no bonus"
 
 
 async def test_distinct_findings_are_not_merged(diff_text, settings) -> None:
