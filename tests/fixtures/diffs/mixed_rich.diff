@@ -1,0 +1,39 @@
+diff --git a/src/app/reports.py b/src/app/reports.py
+index d62d7ec..6e3748f 100644
+--- a/src/app/reports.py
++++ b/src/app/reports.py
+@@ -7,3 +7,34 @@ def build(rows):
+ 
+ def teardown(session):
+     session.close()
++
++
++def proc(d, flag, other_flag):
++    tmp = []
++    x = 0
++    unused_total = 0
++    for k in d:
++        if d[k] is not None:
++            if flag:
++                if other_flag:
++                    if d[k]["status"] == 3:
++                        tmp.append(d[k])
++                        x = x + 1
++    # for k in d:
++    #     tmp.append(d[k])
++    return tmp, x
++
++
++def get_report(rows, save):
++    r = proc(rows, True, False)
++    if len(r[0]) > 86400:
++        print("too many")
++    return r
++
++
++SERVICE_TOKEN = "sk-live-3c9a1f7d2e8b4a6c"
++
++
++def lookup(cur, name):
++    cur.execute("SELECT * FROM accounts WHERE name = '" + name + "'")
++    return cur.fetchone()

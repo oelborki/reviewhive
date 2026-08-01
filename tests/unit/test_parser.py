@@ -1,6 +1,23 @@
 from __future__ import annotations
 
+import pytest
+
 from reviewhive.diff.parser import DiffFile, DiffHunk, parse_diff
+from tests.conftest import FIXTURES
+
+DIFF_FIXTURES = sorted((FIXTURES / "diffs").glob("*.diff"))
+
+
+@pytest.mark.parametrize("path", DIFF_FIXTURES, ids=lambda p: p.name)
+def test_every_fixture_diff_parses(path) -> None:
+    """A fixture with a miscounted hunk header parses to nothing, and a review of
+    nothing returns no findings without erroring — so a broken fixture reads as a
+    clean diff. Generate these with `git diff` rather than by hand, and keep this
+    test as the tripwire."""
+    parsed = parse_diff(path.read_text(encoding="utf-8"))
+
+    assert parsed.unparseable == [], f"{path.name} has a malformed hunk header"
+    assert parsed.files, f"{path.name} produced no reviewable files"
 
 
 def test_parses_every_file_entry(diff_text: str) -> None:
