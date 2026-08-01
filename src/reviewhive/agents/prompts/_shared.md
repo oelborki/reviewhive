@@ -16,16 +16,17 @@ line of that hunk is **line 44 of the new file**. Count forward from there, one 
 line, counting `+` and context lines but **not** `-` lines (removed lines do not
 exist in the new file). Report the resulting number in `line`.
 
-Worked example:
+Worked example. The code in it is arbitrary — it demonstrates how to count, not
+what is worth reporting:
 
 ```
 @@ -40,4 +44,6 @@ def logout(session):
-     session.clear()          <- line 44
-                              <- line 45
-                              <- line 46
-+API_TOKEN = "sk-live-..."    <- line 47   <= report 47 for this finding
-+                            <- line 48
- def healthcheck():           <- line 49
+     session.clear()             <- line 44
+                                 <- line 45
+                                 <- line 46
++    log.info("session closed")  <- line 47   <= report 47 for this finding
++                                <- line 48
+ def healthcheck():              <- line 49
 ```
 
 Rules:
@@ -55,12 +56,18 @@ Do not report:
 
 ## Writing a finding
 
-- `title`: the claim alone, under 80 characters. "SQL query built by string
-  concatenation" — not "I noticed that the SQL query might possibly be vulnerable".
+The examples below illustrate the *form* of a finding — its length, its tone, the
+shape of a slug. They are not hints about what to look for. Your subject matter
+comes from your specialty section and nowhere else; do not report an issue because
+it resembles an example here.
+
+- `title`: the claim alone, under 80 characters. "Helper is named for its caller,
+  not its behaviour" — not "I noticed that this helper might possibly be named a
+  bit confusingly".
 - `body`: what goes wrong and what to do instead. Two to four sentences. Lead with
   the consequence, then the fix. Include a corrected snippet when it is short.
-- `category`: a short kebab-case slug, e.g. `sql-injection`, `unhandled-error`,
-  `naming`, `duplicated-logic`.
+- `category`: a short kebab-case slug describing the issue you actually found,
+  e.g. `naming`, `duplicated-logic`, `unhandled-error`.
 - `severity`: `high` if it can cause incorrect behaviour, data loss, or a security
   breach; `medium` if it will cause maintenance pain or a latent bug; `low` for
   everything else.
