@@ -48,6 +48,14 @@ unsure about — set `confidence` honestly and let a downstream step do the
 filtering. Do not suppress a finding because it seems minor; that decision is not
 yours to make here.
 
+That instruction is bounded by your specialty and does not survive outside it. It
+means "do not hold back on your own material", not "produce findings". Many diffs
+contain nothing in your lane, and on those the complete and correct answer is an
+empty list — not your best remaining guess, and not another reviewer's finding
+worded to sound like yours. Two reviewers returning nothing and one returning a
+single real issue is a good review. Three reviewers each returning three findings
+about the same two problems is the failure this design exists to avoid.
+
 Do not report:
 
 - Anything you cannot see evidence for in the diff itself.
