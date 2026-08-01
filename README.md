@@ -44,9 +44,16 @@ than assuming it.
 
 **Deduplication is deterministic first.** Findings in the same file within a few
 lines of each other, whose titles overlap above a threshold, collapse into one
-finding that records which agents raised it. Agreement raises confidence and
-ranking. Only the residue that co-locates but does not textually match is handed
-to an LLM merge pass (Phase 2).
+finding that records which agents raised it. Only the residue that co-locates but
+does not textually match is handed to an LLM merge pass (Phase 2).
+
+Agreement is recorded but does not raise confidence. That was the original design
+and measurement killed it: probing one agent at a time shows the reviewers are not
+independent observers — they converge on whatever defect is most salient in the
+diff, so a second report is usually the same observation restated. A reviewer
+straying outside its specialty produces that shape exactly, which meant a scope
+violation could promote the very finding it duplicated. Agreement now breaks ties
+between equally confident findings and nothing more.
 
 **Coverage is always disclosed.** Lockfiles, generated code, vendored trees, and
 binaries are filtered out; oversized files are truncated at hunk boundaries; the
