@@ -20,6 +20,50 @@ def test_every_fixture_diff_parses(path) -> None:
     assert parsed.files, f"{path.name} produced no reviewable files"
 
 
+class TestNumberedRendering:
+    """The gutter is what the model copies into `line`, so it has to agree with
+    `anchorable_lines` exactly. If they can disagree, the prompt is inviting
+    anchors that GitHub will reject — and a rejected anchor fails the whole review
+    request, not just one comment."""
+
+    @staticmethod
+    def _gutter(file) -> list[int]:
+        numbers = []
+        for raw in file.numbered_text.splitlines():
+            head = raw[:5].strip()
+            if head.isdigit():
+                numbers.append(int(head))
+        return numbers
+
+    def test_gutter_numbers_are_exactly_the_anchorable_lines(self, diff_text: str) -> None:
+        for file in parse_diff(diff_text).files:
+            if not file.hunks:
+                continue
+            assert set(self._gutter(file)) == set(file.anchorable_lines), file.path
+
+    def test_removed_lines_get_no_number(self) -> None:
+        """A removed line has no position in the new file. Numbering it would offer
+        the model an anchor that cannot exist."""
+        parsed = parse_diff(
+            "diff --git a/f.py b/f.py\n"
+            "--- a/f.py\n"
+            "+++ b/f.py\n"
+            "@@ -1,2 +1,2 @@\n"
+            " keep\n"
+            "-gone\n"
+            "+added\n"
+        )
+        rendered = [ln for ln in parsed.files[0].numbered_text.splitlines() if "gone" in ln]
+
+        assert rendered, "the removed line should still be visible"
+        assert rendered[0].startswith(" " * 6), "but it must not carry a number"
+
+    def test_numbers_are_ascending_within_a_file(self, diff_text: str) -> None:
+        for file in parse_diff(diff_text).files:
+            gutter = self._gutter(file)
+            assert gutter == sorted(gutter), file.path
+
+
 def test_parses_every_file_entry(diff_text: str) -> None:
     parsed = parse_diff(diff_text)
 
@@ -77,6 +121,7 @@ class TestNearestAnchor:
     def _file(self, added: set[int], context: set[int] | None = None) -> DiffFile:
         hunk = DiffHunk(
             text="",
+            numbered_text="",
             added_lines=frozenset(added),
             context_lines=frozenset(context or ()),
             removed_lines=frozenset(),

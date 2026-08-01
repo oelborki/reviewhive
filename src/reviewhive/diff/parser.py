@@ -30,6 +30,7 @@ class DiffHunk:
     stays exact."""
 
     text: str
+    numbered_text: str
     added_lines: frozenset[int]
     context_lines: frozenset[int]
     removed_lines: frozenset[int]
@@ -56,9 +57,23 @@ class DiffFile:
 
     @property
     def text(self) -> str:
-        """The diff exactly as the model will see it, including any omission marker."""
-        parts = [self.header, *(h.text for h in self.hunks)]
-        body = "".join(parts)
+        """The plain unified diff, unnumbered. Kept for anything that needs a
+        valid patch; `numbered_text` is what the model is shown."""
+        return self._assemble(h.text for h in self.hunks)
+
+    @property
+    def numbered_text(self) -> str:
+        """The diff as the model sees it, every new-file line carrying its number.
+
+        Counting lines forward from a hunk header is arithmetic the parser has
+        already done, and asking the model to redo it produces a drift that grows
+        with depth into the diff — reported anchors ran 4 to 8 lines short by the
+        end of a 30-line hunk. Printing the number removes the task.
+        """
+        return self._assemble(h.numbered_text for h in self.hunks)
+
+    def _assemble(self, bodies) -> str:
+        body = "".join([self.header, *bodies])
         if self.omitted_hunks:
             body += (
                 f"\n[reviewHive: {self.omitted_lines} further lines across "
@@ -217,6 +232,13 @@ def _to_hunk(hunk) -> DiffHunk:
     context: set[int] = set()
     removed: set[int] = set()
 
+    # The numbered rendering is built here, from the same `target_line_no` that
+    # populates `added_lines`, so the numbers the model is shown are by
+    # construction the numbers it is allowed to report. Deriving them separately
+    # would let the two drift.
+    rendered = str(hunk).splitlines(keepends=True)
+    numbered = [rendered[0]] if rendered else []
+
     for line in hunk:
         if line.is_added and line.target_line_no is not None:
             added.add(line.target_line_no)
@@ -225,8 +247,14 @@ def _to_hunk(hunk) -> DiffHunk:
         elif line.is_removed and line.source_line_no is not None:
             removed.add(line.source_line_no)
 
+        # A removed line has no position in the new file, so it gets no number and
+        # cannot be reported as an anchor.
+        gutter = f"{line.target_line_no:>5} " if line.target_line_no is not None else " " * 6
+        numbered.append(gutter + str(line))
+
     return DiffHunk(
         text=str(hunk),
+        numbered_text="".join(numbered),
         added_lines=frozenset(added),
         context_lines=frozenset(context),
         removed_lines=frozenset(removed),

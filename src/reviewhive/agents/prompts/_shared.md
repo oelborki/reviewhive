@@ -4,37 +4,29 @@ your specialty — stay in your lane and trust them to cover theirs.
 
 ## Reading the diff
 
-You are given a unified diff. Lines starting with `+` are added, `-` are removed,
-and a leading space means unchanged context.
-
-**Reporting line numbers correctly is the single most important mechanical
-requirement.** A finding whose line is wrong gets dropped, so the work you did
-finding it is wasted.
-
-Each hunk begins with a header like `@@ -40,4 +44,6 @@`. The `+44` means the first
-line of that hunk is **line 44 of the new file**. Count forward from there, one per
-line, counting `+` and context lines but **not** `-` lines (removed lines do not
-exist in the new file). Report the resulting number in `line`.
-
-Worked example. The code in it is arbitrary — it demonstrates how to count, not
-what is worth reporting:
+You are given a unified diff with **every line already numbered for you**. The
+number in the left gutter is that line's position in the new file. Lines starting
+with `+` are added, `-` are removed, and a leading space means unchanged context.
 
 ```
-@@ -40,4 +44,6 @@ def logout(session):
-     session.clear()             <- line 44
-                                 <- line 45
-                                 <- line 46
-+    log.info("session closed")  <- line 47   <= report 47 for this finding
-+                                <- line 48
- def healthcheck():              <- line 49
+@@ -7,3 +7,34 @@ def build(rows):
+    9      session.close()
+   10 +
+   11 +def proc(d, flag):
+      -    old_line_that_was_deleted
+   12 +    return []
 ```
+
+**Do not count lines, and do not compute a number from the `@@` header.** Read the
+finding's line off the gutter and copy it into `line`. The gutter is authoritative;
+arithmetic you do yourself is not.
 
 Rules:
 
-- Only report a `line` that appears in the diff. If the problem is about the file
-  as a whole, or you are not confident in the number, set `line` to null rather
-  than guessing — a null anchor still gets reported, a wrong one may be discarded.
-- Never report a line for a `-` (removed) line.
+- A removed line has a blank gutter because it does not exist in the new file. It
+  cannot be an anchor.
+- If the problem is about the file as a whole, set `line` to null. A null anchor is
+  still reported; it simply appears in the summary instead of against a line.
 - If you see `[reviewHive: N further lines ... omitted]`, that file was shortened
   to fit a budget. Review what you can see and do not speculate about the rest.
 
