@@ -4,8 +4,9 @@ A multi-agent AI code reviewer for GitHub pull requests. Three specialized agent
 examine the diff **in parallel**, their findings are deduplicated and ranked, and
 the result is posted as a single review.
 
-> **Status: Phase 1 of 5.** The review pipeline runs end to end against a local
-> diff file. GitHub webhooks, persistence, and deployment are not built yet — see
+> **Status: Phase 3 of 5.** Open a pull request on a configured repository and a
+> review with inline comments appears. Runs are persisted to Postgres. Remaining:
+> full CI, the LLM merge pass, and a containerised deployment — see
 > [Roadmap](#roadmap).
 
 ## How it works
@@ -112,6 +113,86 @@ scales with diff size, so treat the smaller figure as a floor rather than a
 typical PR. Both scripts print the exact figure and per-agent latency for every
 run.
 
+## Reviewing real pull requests
+
+```bash
+pip install -e ".[service,db]"
+uvicorn reviewhive.api.app:app --port 8000
+```
+
+Point a repository's webhook at it, subscribed to **Pull requests**, with the
+content type set to **`application/json`**. The other content type sends the body
+as a form field and signs *that*, so every signature fails and it reads as a
+broken HMAC for an afternoon.
+
+The endpoint verifies, records, and returns `202` with a review id; the graph
+then runs as a background task and posts the result. The ordering inside the
+handler is the interesting part:
+
+1. **Read the raw bytes before parsing anything.** The signature covers exactly
+   what GitHub sent, and a JSON round trip reorders keys and re-escapes unicode.
+   This is not hypothetical — fetching one of our own deliveries back from the
+   API returns a *parsed* payload, and re-serialising it fails against the
+   signature GitHub actually sent.
+2. **Verify before checking the allowlist**, so an unauthenticated caller cannot
+   discover which repositories are configured. Every rejection answers the same
+   generic `401`.
+3. **Answer `200` for deliberate non-action.** A `4xx` marks the delivery red in
+   GitHub's log, and a log where red is routine is a log nobody reads. `ping`
+   especially: it is the first thing GitHub sends when a hook is created.
+
+Reviews trigger on `opened`, `reopened` and `ready_for_review`. `synchronize` is
+behind `REVIEWHIVE_REVIEW_ON_SYNCHRONIZE`, off by default: it fires once per push
+with a fresh head sha, so the head-sha check cannot collapse a burst and five
+quick commits would be five reviews. Drafts are skipped until marked ready.
+
+**Idempotency uses a query and a constraint, deliberately.** GitHub redelivers on
+timeout and offers a Redeliver button, so the handler looks the delivery up
+first — the common path should be a clean answer, not a caught exception. But two
+concurrent redeliveries both pass that lookup, so `delivery_id` is also `UNIQUE`.
+The query is ergonomics; the constraint is correctness. Separately, a review is
+keyed on `(repo, pr_number, head_sha)`, because a draft marked ready right after
+being opened is two deliveries describing the same commit.
+
+**A rejected anchor degrades rather than failing.** GitHub rejects an *entire*
+review request if one comment is misplaced, so every line is validated against the
+parsed diff before sending — and if GitHub still refuses, the review is re-posted
+with no inline comments and a note saying so. The retry is guarded: a `422` from a
+stale commit sha or a read-only token has nothing to remove, so it is not retried.
+
+**Background tasks die with the process.** A deploy or a `--reload` restart
+mid-review strands a `running` row. That is the honest cost of running in-process
+rather than behind a queue; `mark_running` at least makes the orphan diagnosable
+rather than invisible. A worker queue is the scaling path, and deliberately not
+built.
+
+### The local loop
+
+Iterating against real pull requests is slow and costs a review each time.
+Replay a captured delivery instead:
+
+```bash
+uvicorn reviewhive.api.app:app --reload --port 8000
+npx smee-client --url https://smee.io/<channel> --path /webhooks/github --port 8000
+
+python scripts/replay_webhook.py tests/fixtures/webhooks/pull_request_opened.json
+python scripts/replay_webhook.py <fixture> --repo you/demo --pr 7 --delivery <id>
+```
+
+The script signs the exact bytes it sends with the same `sign()` the server
+verifies with. A saved fixture can never carry a reusable signature — storing it
+re-serialises the JSON — so re-signing is the only thing that can work, and
+sharing the implementation keeps the script from drifting from the code under
+test. It uses a fresh delivery id per run unless given one, so replays are not
+deduplicated away while iterating.
+
+The token needs three permissions, and the third is easy to miss: **Pull
+requests: read and write** to post, **Issues: read and write** because pull
+request conversation comments are gated under Issues, and **Contents: read**
+because the `.diff` media type is repository content. Without the last one,
+posting reviews and listing files both return `200` and only the diff fetch
+`403`s — which reads as a bug in the fetch rather than a missing scope.
+
 ## Persistence
 
 Optional. With no `REVIEWHIVE_DATABASE_URL` set, the CLI behaves exactly as above
@@ -159,9 +240,9 @@ FROM findings GROUP BY 1, 2 ORDER BY 3 DESC;
 ## Tests
 
 ```bash
-pytest              # 160 tests, no network, no API spend, no database
+pytest              # 250 tests, no network, no API spend, no database
 ruff check .
-pytest -m db        # 12 more, against the compose Postgres
+pytest -m db        # 23 more, against the compose Postgres
 ```
 
 The default run never contacts the Anthropic API and never needs infrastructure.
@@ -170,6 +251,12 @@ graph around an in-memory stub (`tests/stubs.py`) with no monkeypatching —
 including the timing assertion that proves the fan-out overlaps. Persistence gets
 the same treatment: callers depend on a `ReviewStore` protocol, and the unit suite
 runs against an in-memory implementation of it.
+
+The GitHub layer gets the same treatment. `signature.py`, `positions.py`,
+`client.py` and `jobs.py` import neither FastAPI nor SQLAlchemy, so their tests —
+including the full fetch → review → post path — run on a bare install with an
+`httpx.MockTransport` standing in for GitHub. Only the endpoint test needs the
+`service` extra, and it skips rather than fails without it.
 
 The `db`-marked tests are the exception and are deselected by default. They build
 their schema by running the migration rather than `create_all()`, so the migration
@@ -182,8 +269,8 @@ database not named `reviewhive_test`.
 |---|---|---|
 | 1 | Review pipeline against local diffs | **Done** |
 | 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
-| 3 | Webhook endpoint, signature verification, inline review comments | Next |
-| 4 | Full test coverage, CI, LLM merge pass | |
+| 3 | Webhook endpoint, signature verification, inline review comments | **Done** |
+| 4 | Full test coverage, CI, LLM merge pass | Next |
 | 5 | Docker, temporary deploy, demo | |
 
 ## Deliberately out of scope
