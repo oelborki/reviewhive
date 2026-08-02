@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 from tests.conftest import FIXTURES
 
@@ -35,11 +37,33 @@ class TestNumberedRendering:
                 numbers.append(int(head))
         return numbers
 
-    def test_gutter_numbers_are_exactly_the_anchorable_lines(self, diff_text: str) -> None:
-        for file in parse_diff(diff_text).files:
+    @pytest.mark.parametrize("path", DIFF_FIXTURES, ids=lambda p: p.name)
+    def test_gutter_numbers_are_exactly_the_anchorable_lines(self, path) -> None:
+        for file in parse_diff(path.read_text(encoding="utf-8")).files:
             if not file.hunks:
                 continue
             assert set(self._gutter(file)) == set(file.anchorable_lines), file.path
+
+    def test_line_numbers_overlap_across_files_in_a_real_diff(self) -> None:
+        """Why `multi_file.diff` is kept. Numbering restarts per file, so the same
+        number is a valid anchor in several of them at once — 41 line numbers here
+        are anchorable in two or more files, and nine in three. A finding is only
+        locatable as a (file, line) pair, and a single-file fixture cannot catch a
+        reviewer that gets the number right and the file wrong."""
+        files = [
+            f
+            for f in parse_diff(
+                (FIXTURES / "diffs" / "multi_file.diff").read_text(encoding="utf-8")
+            ).files
+            if f.hunks
+        ]
+        shared = Counter(line for f in files for line in f.anchorable_lines)
+
+        assert len(files) >= 3, "fixture must span several files to be worth keeping"
+        assert max(shared.values()) >= 3, "no line number is anchorable in three files"
+        assert sum(1 for n in shared.values() if n >= 2) >= 20, (
+            "too little overlap to catch a file/line mismatch"
+        )
 
     def test_removed_lines_get_no_number(self) -> None:
         """A removed line has no position in the new file. Numbering it would offer
@@ -58,8 +82,11 @@ class TestNumberedRendering:
         assert rendered, "the removed line should still be visible"
         assert rendered[0].startswith(" " * 6), "but it must not carry a number"
 
-    def test_numbers_are_ascending_within_a_file(self, diff_text: str) -> None:
-        for file in parse_diff(diff_text).files:
+    @pytest.mark.parametrize("path", DIFF_FIXTURES, ids=lambda p: p.name)
+    def test_numbers_are_ascending_within_a_file(self, path) -> None:
+        """Holds across hunk boundaries too — `parser.py` in the multi-file fixture
+        has four hunks and the gutter must jump, not restart."""
+        for file in parse_diff(path.read_text(encoding="utf-8")).files:
             gutter = self._gutter(file)
             assert gutter == sorted(gutter), file.path
 

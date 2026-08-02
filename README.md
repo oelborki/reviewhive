@@ -98,9 +98,11 @@ Probe against a diff carrying real material for the agent under test.
 so the pair separates an agent straying because security is eye-catching from one
 straying because its own lane is empty.
 
-Cost is **$0.012–$0.015 per pull request** on `claude-haiku-4-5`, measured across
-several runs of `mixed.diff`; both scripts print the exact figure and per-agent
-latency for every run.
+Cost on `claude-haiku-4-5`, measured: **$0.013** for a small single-file diff,
+**$0.023** for a real six-file pull request (~6,400 input tokens per agent). It
+scales with diff size, so treat the smaller figure as a floor rather than a
+typical PR. Both scripts print the exact figure and per-agent latency for every
+run.
 
 ## Tests
 

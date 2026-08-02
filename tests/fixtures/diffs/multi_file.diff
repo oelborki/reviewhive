@@ -1,0 +1,241 @@
+diff --git a/src/reviewhive/agents/prompts/_shared.md b/src/reviewhive/agents/prompts/_shared.md
+index beae838..23f033d 100644
+--- a/src/reviewhive/agents/prompts/_shared.md
++++ b/src/reviewhive/agents/prompts/_shared.md
+@@ -4,37 +4,29 @@ your specialty — stay in your lane and trust them to cover theirs.
+ 
+ ## Reading the diff
+ 
+-You are given a unified diff. Lines starting with `+` are added, `-` are removed,
+-and a leading space means unchanged context.
+-
+-**Reporting line numbers correctly is the single most important mechanical
+-requirement.** A finding whose line is wrong gets dropped, so the work you did
+-finding it is wasted.
+-
+-Each hunk begins with a header like `@@ -40,4 +44,6 @@`. The `+44` means the first
+-line of that hunk is **line 44 of the new file**. Count forward from there, one per
+-line, counting `+` and context lines but **not** `-` lines (removed lines do not
+-exist in the new file). Report the resulting number in `line`.
+-
+-Worked example. The code in it is arbitrary — it demonstrates how to count, not
+-what is worth reporting:
++You are given a unified diff with **every line already numbered for you**. The
++number in the left gutter is that line's position in the new file. Lines starting
++with `+` are added, `-` are removed, and a leading space means unchanged context.
+ 
+ ```
+-@@ -40,4 +44,6 @@ def logout(session):
+-     session.clear()             <- line 44
+-                                 <- line 45
+-                                 <- line 46
+-+    log.info("session closed")  <- line 47   <= report 47 for this finding
+-+                                <- line 48
+- def healthcheck():              <- line 49
++@@ -7,3 +7,34 @@ def build(rows):
++    9      session.close()
++   10 +
++   11 +def proc(d, flag):
++      -    old_line_that_was_deleted
++   12 +    return []
+ ```
+ 
++**Do not count lines, and do not compute a number from the `@@` header.** Read the
++finding's line off the gutter and copy it into `line`. The gutter is authoritative;
++arithmetic you do yourself is not.
++
+ Rules:
+ 
+-- Only report a `line` that appears in the diff. If the problem is about the file
+-  as a whole, or you are not confident in the number, set `line` to null rather
+-  than guessing — a null anchor still gets reported, a wrong one may be discarded.
+-- Never report a line for a `-` (removed) line.
++- A removed line has a blank gutter because it does not exist in the new file. It
++  cannot be an anchor.
++- If the problem is about the file as a whole, set `line` to null. A null anchor is
++  still reported; it simply appears in the summary instead of against a line.
+ - If you see `[reviewHive: N further lines ... omitted]`, that file was shortened
+   to fit a budget. Review what you can see and do not speculate about the rest.
+ 
+diff --git a/src/reviewhive/diff/budget.py b/src/reviewhive/diff/budget.py
+index 6c44c68..846707f 100644
+--- a/src/reviewhive/diff/budget.py
++++ b/src/reviewhive/diff/budget.py
+@@ -80,7 +80,9 @@ def classify_noise(path: str) -> str | None:
+ 
+ 
+ def render_prompt(files: list[DiffFile]) -> str:
+-    return "\n".join(f.text for f in files)
++    """Every new-file line carries its number, so the model reads an anchor rather
++    than counting one. The budget is measured against this same rendering."""
++    return "\n".join(f.numbered_text for f in files)
+ 
+ 
+ async def build_budget(
+@@ -139,7 +141,7 @@ async def _fit_to_budget(
+     twenty. Per-file counts are measured concurrently, once, rather than
+     re-counting the whole prompt after every drop.
+     """
+-    sizes = await asyncio.gather(*(count_tokens(f.text) for f in files))
++    sizes = await asyncio.gather(*(count_tokens(f.numbered_text) for f in files))
+     by_size = sorted(zip(files, sizes, strict=True), key=lambda pair: pair[1], reverse=True)
+ 
+     total = sum(sizes)
+diff --git a/src/reviewhive/diff/parser.py b/src/reviewhive/diff/parser.py
+index 2c116bb..49b7834 100644
+--- a/src/reviewhive/diff/parser.py
++++ b/src/reviewhive/diff/parser.py
+@@ -30,6 +30,7 @@ class DiffHunk:
+     stays exact."""
+ 
+     text: str
++    numbered_text: str
+     added_lines: frozenset[int]
+     context_lines: frozenset[int]
+     removed_lines: frozenset[int]
+@@ -56,9 +57,23 @@ class DiffFile:
+ 
+     @property
+     def text(self) -> str:
+-        """The diff exactly as the model will see it, including any omission marker."""
+-        parts = [self.header, *(h.text for h in self.hunks)]
+-        body = "".join(parts)
++        """The plain unified diff, unnumbered. Kept for anything that needs a
++        valid patch; `numbered_text` is what the model is shown."""
++        return self._assemble(h.text for h in self.hunks)
++
++    @property
++    def numbered_text(self) -> str:
++        """The diff as the model sees it, every new-file line carrying its number.
++
++        Counting lines forward from a hunk header is arithmetic the parser has
++        already done, and asking the model to redo it produces a drift that grows
++        with depth into the diff — reported anchors ran 4 to 8 lines short by the
++        end of a 30-line hunk. Printing the number removes the task.
++        """
++        return self._assemble(h.numbered_text for h in self.hunks)
++
++    def _assemble(self, bodies) -> str:
++        body = "".join([self.header, *bodies])
+         if self.omitted_hunks:
+             body += (
+                 f"\n[reviewHive: {self.omitted_lines} further lines across "
+@@ -217,6 +232,13 @@ def _to_hunk(hunk) -> DiffHunk:
+     context: set[int] = set()
+     removed: set[int] = set()
+ 
++    # The numbered rendering is built here, from the same `target_line_no` that
++    # populates `added_lines`, so the numbers the model is shown are by
++    # construction the numbers it is allowed to report. Deriving them separately
++    # would let the two drift.
++    rendered = str(hunk).splitlines(keepends=True)
++    numbered = [rendered[0]] if rendered else []
++
+     for line in hunk:
+         if line.is_added and line.target_line_no is not None:
+             added.add(line.target_line_no)
+@@ -225,8 +247,14 @@ def _to_hunk(hunk) -> DiffHunk:
+         elif line.is_removed and line.source_line_no is not None:
+             removed.add(line.source_line_no)
+ 
++        # A removed line has no position in the new file, so it gets no number and
++        # cannot be reported as an anchor.
++        gutter = f"{line.target_line_no:>5} " if line.target_line_no is not None else " " * 6
++        numbered.append(gutter + str(line))
++
+     return DiffHunk(
+         text=str(hunk),
++        numbered_text="".join(numbered),
+         added_lines=frozenset(added),
+         context_lines=frozenset(context),
+         removed_lines=frozenset(removed),
+diff --git a/tests/unit/test_anchors.py b/tests/unit/test_anchors.py
+index 288e7c1..21c25ae 100644
+--- a/tests/unit/test_anchors.py
++++ b/tests/unit/test_anchors.py
+@@ -8,6 +8,7 @@
+ def diff_file(path: str, added: set[int], context: set[int] | None = None) -> DiffFile:
+     hunk = DiffHunk(
+         text="",
++        numbered_text="",
+         added_lines=frozenset(added),
+         context_lines=frozenset(context or ()),
+         removed_lines=frozenset(),
+diff --git a/tests/unit/test_budget.py b/tests/unit/test_budget.py
+index 051f78c..2ac5e79 100644
+--- a/tests/unit/test_budget.py
++++ b/tests/unit/test_budget.py
+@@ -64,6 +64,10 @@ def _file(path: str, hunk_count: int, lines_per_hunk: int = 10) -> DiffFile:
+     hunks = tuple(
+         DiffHunk(
+             text=f"@@ hunk {i} of {path} @@\n" + ("+line\n" * lines_per_hunk),
++            # Wider than `text`, as the real rendering is — the budget is measured
++            # against the numbered form, so the stand-in has to carry a gutter too.
++            numbered_text=f"@@ hunk {i} of {path} @@\n"
++            + "".join(f"{i * 100 + n:>5} +line\n" for n in range(lines_per_hunk)),
+             added_lines=frozenset(range(i * 100, i * 100 + lines_per_hunk)),
+             context_lines=frozenset(),
+             removed_lines=frozenset(),
+diff --git a/tests/unit/test_parser.py b/tests/unit/test_parser.py
+index 995dff8..a9ccfd2 100644
+--- a/tests/unit/test_parser.py
++++ b/tests/unit/test_parser.py
+@@ -20,6 +20,50 @@ def test_every_fixture_diff_parses(path) -> None:
+     assert parsed.files, f"{path.name} produced no reviewable files"
+ 
+ 
++class TestNumberedRendering:
++    """The gutter is what the model copies into `line`, so it has to agree with
++    `anchorable_lines` exactly. If they can disagree, the prompt is inviting
++    anchors that GitHub will reject — and a rejected anchor fails the whole review
++    request, not just one comment."""
++
++    @staticmethod
++    def _gutter(file) -> list[int]:
++        numbers = []
++        for raw in file.numbered_text.splitlines():
++            head = raw[:5].strip()
++            if head.isdigit():
++                numbers.append(int(head))
++        return numbers
++
++    def test_gutter_numbers_are_exactly_the_anchorable_lines(self, diff_text: str) -> None:
++        for file in parse_diff(diff_text).files:
++            if not file.hunks:
++                continue
++            assert set(self._gutter(file)) == set(file.anchorable_lines), file.path
++
++    def test_removed_lines_get_no_number(self) -> None:
++        """A removed line has no position in the new file. Numbering it would offer
++        the model an anchor that cannot exist."""
++        parsed = parse_diff(
++            "diff --git a/f.py b/f.py\n"
++            "--- a/f.py\n"
++            "+++ b/f.py\n"
++            "@@ -1,2 +1,2 @@\n"
++            " keep\n"
++            "-gone\n"
++            "+added\n"
++        )
++        rendered = [ln for ln in parsed.files[0].numbered_text.splitlines() if "gone" in ln]
++
++        assert rendered, "the removed line should still be visible"
++        assert rendered[0].startswith(" " * 6), "but it must not carry a number"
++
++    def test_numbers_are_ascending_within_a_file(self, diff_text: str) -> None:
++        for file in parse_diff(diff_text).files:
++            gutter = self._gutter(file)
++            assert gutter == sorted(gutter), file.path
++
++
+ def test_parses_every_file_entry(diff_text: str) -> None:
+     parsed = parse_diff(diff_text)
+ 
+@@ -77,6 +121,7 @@ class TestNearestAnchor:
+     def _file(self, added: set[int], context: set[int] | None = None) -> DiffFile:
+         hunk = DiffHunk(
+             text="",
++            numbered_text="",
+             added_lines=frozenset(added),
+             context_lines=frozenset(context or ()),
+             removed_lines=frozenset(),
