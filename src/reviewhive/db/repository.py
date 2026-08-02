@@ -164,6 +164,15 @@ class SqlReviewStore:
             )
             await session.commit()
 
+    async def get_review(self, review_id: UUID) -> ReviewRef | None:
+        async with self._sessionmaker() as session:
+            row = (
+                await session.execute(
+                    select(ReviewRow.id, ReviewRow.status).where(ReviewRow.id == review_id)
+                )
+            ).first()
+        return ReviewRef(id=row.id, status=row.status) if row else None
+
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         async with self._sessionmaker() as session:
             row = (

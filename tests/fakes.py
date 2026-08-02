@@ -96,6 +96,10 @@ class InMemoryReviewStore:
         saved.posted_review_id = posted_review_id
         saved.posted_comment_count = comment_count
 
+    async def get_review(self, review_id: UUID) -> ReviewRef | None:
+        saved = self.reviews.get(review_id)
+        return ReviewRef(id=saved.id, status=saved.status) if saved else None
+
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         for saved in self.reviews.values():
             if saved.github and saved.github.delivery_id == delivery_id:

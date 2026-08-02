@@ -137,6 +137,14 @@ class ReviewStore(Protocol):
         """
         ...
 
+    async def get_review(self, review_id: UUID) -> ReviewRef | None:
+        """The status of one review.
+
+        The webhook answers 202 with an id and nothing else, so without this the
+        only way to see whether the background job finished is a SQL client.
+        """
+        ...
+
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         """The review recorded for this delivery, if any.
 
@@ -205,6 +213,9 @@ class NullReviewStore:
         posted_review_id: int,
         comment_count: int,
     ) -> None:
+        return None
+
+    async def get_review(self, review_id: UUID) -> ReviewRef | None:
         return None
 
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
