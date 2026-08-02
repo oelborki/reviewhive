@@ -45,7 +45,10 @@ than assuming it.
 **Deduplication is deterministic first.** Findings in the same file within a few
 lines of each other, whose titles overlap above a threshold, collapse into one
 finding that records which agents raised it. Only the residue that co-locates but
-does not textually match is handed to an LLM merge pass (Phase 2).
+does not textually match is left alone for now — an LLM merge pass is the intended
+second step, deliberately deferred because it is the one piece of this with no
+objective success criterion, and worth building against real duplicate data rather
+than a guess. `settings.enable_llm_merge` reserves the name and defaults to off.
 
 Agreement is recorded but does not raise confidence. That was the original design
 and measurement killed it: probing one agent at a time shows the reviewers are not
@@ -104,25 +107,77 @@ scales with diff size, so treat the smaller figure as a floor rather than a
 typical PR. Both scripts print the exact figure and per-agent latency for every
 run.
 
+## Persistence
+
+Optional. With no `REVIEWHIVE_DATABASE_URL` set, the CLI behaves exactly as above
+and stores nothing — the prompt-iteration loop should not need infrastructure.
+With one set, every run is recorded.
+
+```bash
+pip install -e ".[db]"
+docker compose up -d db
+alembic upgrade head
+```
+
+Three tables: a `reviews` row per run, an `agent_calls` row per model request, and
+a `findings` row per posted finding. The run is written **before** the review
+starts, so a crash leaves a `pending` row rather than nothing — the same two-phase
+path the webhook will use.
+
+Cost is priced per model in `pricing.py` and computed once, at write time, so a
+stored figure stays a snapshot of the rates in force when the run happened rather
+than being silently rewritten by a later price change. A model with no published
+rate stores `NULL`, which keeps "we don't know" distinguishable from "it was
+free".
+
+The diff itself is not stored — only its SHA-256 and byte count. Diffs are
+unbounded, usually someone else's source, and re-fetchable by ref. The tradeoff is
+that a review cannot be replayed offline from the database alone.
+
+```sql
+SELECT r.id, r.created_at, r.total_cost_usd,
+       sum(c.input_tokens + c.output_tokens) AS tokens,
+       count(*) FILTER (WHERE c.error IS NOT NULL) AS failed_agents
+FROM reviews r JOIN agent_calls c ON c.review_id = r.id
+GROUP BY r.id ORDER BY r.created_at DESC LIMIT 20;
+```
+
+Because findings are rows rather than a JSON blob, the reviewers can be measured
+over time instead of eyeballed one run at a time:
+
+```sql
+-- Which categories does each reviewer actually file?
+SELECT unnest(sources) AS agent, category, count(*)
+FROM findings GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
 ## Tests
 
 ```bash
-pytest        # 94 tests, no network, no API spend
+pytest              # 160 tests, no network, no API spend, no database
 ruff check .
+pytest -m db        # 12 more, against the compose Postgres
 ```
 
-The suite never contacts the Anthropic API. The graph takes its client as a
-constructor argument, so tests build the real graph around an in-memory stub
-(`tests/stubs.py`) with no monkeypatching — including the timing assertion that
-proves the fan-out overlaps.
+The default run never contacts the Anthropic API and never needs infrastructure.
+The graph takes its client as a constructor argument, so tests build the real
+graph around an in-memory stub (`tests/stubs.py`) with no monkeypatching —
+including the timing assertion that proves the fan-out overlaps. Persistence gets
+the same treatment: callers depend on a `ReviewStore` protocol, and the unit suite
+runs against an in-memory implementation of it.
+
+The `db`-marked tests are the exception and are deselected by default. They build
+their schema by running the migration rather than `create_all()`, so the migration
+cannot drift from the models unnoticed, and they refuse to run against any
+database not named `reviewhive_test`.
 
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Review pipeline against local diffs | **Done** |
-| 2 | PostgreSQL persistence, per-call cost telemetry, LLM merge pass | Next |
-| 3 | Webhook endpoint, signature verification, inline review comments | |
+| 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
+| 3 | Webhook endpoint, signature verification, inline review comments | Next |
 | 4 | Full test coverage, CI | |
 | 5 | Docker, temporary deploy, demo | |
 

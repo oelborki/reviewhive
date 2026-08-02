@@ -12,14 +12,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Added in Phase 2/3. Kept separate so Phase 1 installs stay small.
+# Kept separate so a Phase 1 install stays small. `db` is split from `service`
+# because persistence arrived a phase before the webhook: running the CLI against
+# Postgres should not pull in a web server.
+db = [
+    "sqlalchemy[asyncio]==2.0.44",
+    "asyncpg==0.30.0",
+    "alembic==1.18.5",
+]
 service = [
+    "reviewhive[db]",
     "fastapi==0.121.2",
     "uvicorn[standard]==0.40.0",
     "httpx==0.28.1",
-    "sqlalchemy[asyncio]==2.0.44",
-    "asyncpg==0.30.0",
-    "alembic==1.16.6",
 ]
 dev = [
     "pytest==8.4.2",
@@ -38,14 +43,28 @@ packages = ["src/reviewhive"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q --strict-markers"
+# Pin the fixture loop scope rather than inheriting the implicit default: asyncpg
+# connections bind to the loop that created them, so this has to be deliberate
+# before any async database fixture exists.
+asyncio_default_fixture_loop_scope = "function"
+# The deselection is what makes a bare `pytest` offline and free — the marked
+# tests are skipped before anything imports a database driver or a real client.
+# `pytest -m db` overrides it; a command-line -m beats this one.
+addopts = "-q --strict-markers -m 'not db and not live'"
 markers = [
     "live: hits the real Anthropic API and costs money; deselected by default",
+    "db: requires a live Postgres (REVIEWHIVE_DATABASE_URL); deselected by default",
 ]
 
 [tool.ruff]
 line-length = 100
 src = ["src", "tests", "scripts"]
+# Migration bodies are written by `alembic revision --autogenerate` in its own
+# style. Reformatting them means re-doing it after every generation, and a
+# migration that has been hand-edited for line length is harder to trust than one
+# that is plainly what the tool emitted. `migrations/env.py` is hand-written and
+# stays linted.
+exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

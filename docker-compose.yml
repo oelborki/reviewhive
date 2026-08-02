@@ -1,0 +1,40 @@
+# Postgres for local development and for the `db`-marked tests.
+#
+# The database only. There is no app service here: the container image is a later
+# phase, and a compose file that half-runs the application is worse than one that
+# clearly does not.
+#
+#   docker compose up -d db
+#   alembic upgrade head
+#
+# Reset everything, including the data:  docker compose down -v
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: reviewhive
+      POSTGRES_PASSWORD: reviewhive
+      POSTGRES_DB: reviewhive
+    ports:
+      # Another Postgres on 5432 is the usual first-run failure, and on a machine
+      # running more than one project it is the normal case rather than the
+      # exception. Override with POSTGRES_PORT in .env (compose reads it) and
+      # match it in REVIEWHIVE_DATABASE_URL, rather than editing this file.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - reviewhive-pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty data directory only. If reviewhive_test is missing
+      # after editing this, the volume already existed: docker compose down -v.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Not decoration: the app service a later phase adds will want
+      # `depends_on: {db: {condition: service_healthy}}`, and "accepting
+      # connections" is the only useful definition of ready here.
+      test: ["CMD-SHELL", "pg_isready -U reviewhive -d reviewhive"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  reviewhive-pgdata:

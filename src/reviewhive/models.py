@@ -94,7 +94,13 @@ class MergedFinding(BaseModel):
 
 
 class AgentCall(BaseModel):
-    """Telemetry for one Anthropic request. Persisted in Phase 2, logged in Phase 1."""
+    """Telemetry for one Anthropic request.
+
+    Carries no identity, timestamp, or ordering key on purpose — the graph should
+    not be minting ids or reading clocks. The database supplies all three when the
+    call is persisted. What a call *cost* lives in `reviewhive.pricing`, so the
+    domain types stay free of a price list.
+    """
 
     agent: AgentName
     model: str
@@ -105,14 +111,18 @@ class AgentCall(BaseModel):
     findings_returned: int = 0
     error: str | None = None
 
-    def cost_usd(self, input_per_mtok: float, output_per_mtok: float) -> float:
-        return (
-            self.input_tokens * input_per_mtok + self.output_tokens * output_per_mtok
-        ) / 1_000_000
-
 
 class ReviewResult(BaseModel):
-    """Everything one review run produced. The graph's terminal output."""
+    """Everything one review run produced. The graph's terminal output.
+
+    `findings` holds only what was *posted*: `rank_and_cut` drops anything below
+    the confidence floor and anything past the cap, and only `suppressed_count`
+    survives of the rest. Anything persisting this stores posted findings, not all
+    of them.
+
+    For the run's cost, call `reviewhive.pricing.total_cost` — it is not a member
+    here because that would put a price list inside the domain model.
+    """
 
     findings: list[MergedFinding] = Field(default_factory=list)
     suppressed_count: int = Field(
@@ -123,8 +133,3 @@ class ReviewResult(BaseModel):
     )
     truncated_files: list[str] = Field(default_factory=list)
     calls: list[AgentCall] = Field(default_factory=list)
-
-    @property
-    def total_cost_usd(self) -> float:
-        # Haiku 4.5 list price. Phase 2 moves this into config alongside the model id.
-        return sum(c.cost_usd(1.00, 5.00) for c in self.calls)

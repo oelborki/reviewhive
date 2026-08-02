@@ -33,6 +33,7 @@ from reviewhive.agents.definitions import AGENTS
 from reviewhive.config import get_settings
 from reviewhive.graph.build import build_review_graph
 from reviewhive.models import ReviewResult
+from reviewhive.pricing import total_cost
 
 SEVERITY_COLOUR = {"high": "\033[31m", "medium": "\033[33m", "low": "\033[90m"}
 RESET = "\033[0m"
@@ -103,7 +104,7 @@ def print_console(agent: str, diff_path: Path, result: ReviewResult, elapsed: fl
         f"{call.findings_returned} finding(s)  "
         f"{call.input_tokens:>6} in / {call.output_tokens:>5} out{status}{RESET}"
     )
-    print(f"{DIM}cost          ${result.total_cost_usd:.4f}{RESET}")
+    print(f"{DIM}cost          ${total_cost(result):.4f}{RESET}")
 
 
 def main() -> None:

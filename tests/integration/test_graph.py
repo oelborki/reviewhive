@@ -13,7 +13,7 @@ from reviewhive.graph.build import build_review_graph, review_diff
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(anthropic_api_key="test", enable_llm_merge=False)
+    return Settings(anthropic_api_key="test")
 
 
 async def test_runs_all_three_agents(diff_text, settings) -> None:
@@ -156,7 +156,7 @@ async def test_result_reports_what_was_not_reviewed(diff_text, settings) -> None
 
 
 async def test_posting_cap_reports_the_remainder(diff_text) -> None:
-    settings = Settings(anthropic_api_key="test", max_posted_findings=2, enable_llm_merge=False)
+    settings = Settings(anthropic_api_key="test", max_posted_findings=2)
     client = StubAnthropic(
         responses={
             "security": [
@@ -175,7 +175,7 @@ async def test_posting_cap_reports_the_remainder(diff_text) -> None:
 
 
 async def test_low_confidence_findings_are_filtered(diff_text) -> None:
-    settings = Settings(anthropic_api_key="test", min_confidence=0.6, enable_llm_merge=False)
+    settings = Settings(anthropic_api_key="test", min_confidence=0.6)
     client = StubAnthropic(
         responses={
             "style": [
