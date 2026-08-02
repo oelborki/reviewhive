@@ -1,0 +1,96 @@
+{
+  "action": "synchronize",
+  "number": 1,
+  "pull_request": {
+    "id": 4189540233,
+    "number": 1,
+    "state": "open",
+    "locked": false,
+    "title": "Add task search, completion, and emailed reports",
+    "user": {
+      "login": "oelborki",
+      "id": 156924166,
+      "type": "User",
+      "site_admin": false
+    },
+    "body": "Adds a search endpoint, a done toggle, and an admin report that can be mailed to the task owner.\n\n- `GET /search/{owner}` \u2014 substring search, token-gated\n- `POST /tasks/{owner}/{id}/done` \u2014 mark complete\n- `GET /admin/report/{owner}` \u2014 build and email a report\n\nReady for review.",
+    "created_at": "2026-08-02T19:11:25Z",
+    "updated_at": "2026-08-02T19:11:25Z",
+    "merged_at": null,
+    "draft": false,
+    "head": {
+      "label": "oelborki:feat/search-and-reports",
+      "ref": "feat/search-and-reports",
+      "sha": "0672fd3fddbc270810fdef673a22621e5670520c",
+      "user": {
+        "login": "oelborki",
+        "id": 156924166,
+        "type": "User",
+        "site_admin": false
+      },
+      "repo": {
+        "id": 1320493842,
+        "name": "reviewhive-demo",
+        "full_name": "oelborki/reviewhive-demo",
+        "private": true,
+        "owner": {
+          "login": "oelborki",
+          "id": 156924166,
+          "type": "User",
+          "site_admin": false
+        },
+        "default_branch": "main"
+      }
+    },
+    "base": {
+      "label": "oelborki:main",
+      "ref": "main",
+      "sha": "0d29232b13447968c8ef9dba45f902db7071bc39",
+      "user": {
+        "login": "oelborki",
+        "id": 156924166,
+        "type": "User",
+        "site_admin": false
+      },
+      "repo": {
+        "id": 1320493842,
+        "name": "reviewhive-demo",
+        "full_name": "oelborki/reviewhive-demo",
+        "private": true,
+        "owner": {
+          "login": "oelborki",
+          "id": 156924166,
+          "type": "User",
+          "site_admin": false
+        },
+        "default_branch": "main"
+      }
+    },
+    "author_association": "OWNER",
+    "merged": false,
+    "mergeable": null,
+    "commits": 1,
+    "additions": 127,
+    "deletions": 2,
+    "changed_files": 4
+  },
+  "repository": {
+    "id": 1320493842,
+    "name": "reviewhive-demo",
+    "full_name": "oelborki/reviewhive-demo",
+    "private": true,
+    "owner": {
+      "login": "oelborki",
+      "id": 156924166,
+      "type": "User",
+      "site_admin": false
+    },
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "oelborki",
+    "id": 156924166,
+    "type": "User",
+    "site_admin": false
+  }
+}
