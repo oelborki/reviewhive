@@ -23,6 +23,7 @@ from anthropic import AsyncAnthropic
 from reviewhive.config import get_settings
 from reviewhive.graph.build import build_review_graph
 from reviewhive.models import ReviewResult
+from reviewhive.pricing import total_cost
 from reviewhive.render import render_summary
 
 SEVERITY_COLOUR = {"high": "\033[31m", "medium": "\033[33m", "low": "\033[90m"}
@@ -100,7 +101,7 @@ def print_console(result: ReviewResult, elapsed: float) -> None:
         f"(slowest agent {slowest}ms — serial would be "
         f"{sum(c.latency_ms for c in result.calls)}ms){RESET}"
     )
-    print(f"{DIM}cost          ${result.total_cost_usd:.4f}{RESET}")
+    print(f"{DIM}cost          ${total_cost(result):.4f}{RESET}")
 
 
 def main() -> None:

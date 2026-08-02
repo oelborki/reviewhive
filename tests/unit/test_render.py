@@ -93,6 +93,26 @@ class TestSummary:
         assert "0.0020 USD" in summary
         assert "1,200 tokens" in summary
 
+    def test_an_unpriced_model_still_renders_a_footer(self) -> None:
+        """Cost telemetry must never be able to take down the review body. An
+        unknown model contributes nothing to the total rather than raising, and the
+        token count — which does not depend on the price table — stays honest."""
+        summary = render_summary(
+            result(
+                calls=[
+                    AgentCall(
+                        agent="security",
+                        model="claude-imaginary-9",
+                        input_tokens=1000,
+                        output_tokens=200,
+                    )
+                ]
+            )
+        )
+
+        assert "0.0000 USD" in summary
+        assert "1,200 tokens" in summary
+
     def test_failed_agents_are_disclosed(self) -> None:
         summary = render_summary(
             result(

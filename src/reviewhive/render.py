@@ -11,6 +11,7 @@ the diff is worse than one that reviewed nothing, because the reader cannot tell
 from __future__ import annotations
 
 from reviewhive.models import MergedFinding, ReviewResult, Severity
+from reviewhive.pricing import total_cost
 
 SEVERITY_LABEL: dict[Severity, str] = {
     "high": "High",
@@ -124,6 +125,6 @@ def _footer(result: ReviewResult) -> str:
     failed = [c.agent for c in result.calls if c.error]
     note = f" · {len(failed)} agent(s) errored: {', '.join(failed)}" if failed else ""
     return (
-        f"<sub>3 agents · {result.total_cost_usd:.4f} USD · "
+        f"<sub>3 agents · {total_cost(result):.4f} USD · "
         f"{sum(c.input_tokens + c.output_tokens for c in result.calls):,} tokens{note}</sub>"
     )
