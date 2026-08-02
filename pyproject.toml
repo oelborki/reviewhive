@@ -43,9 +43,17 @@ packages = ["src/reviewhive"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q --strict-markers"
+# Pin the fixture loop scope rather than inheriting the implicit default: asyncpg
+# connections bind to the loop that created them, so this has to be deliberate
+# before any async database fixture exists.
+asyncio_default_fixture_loop_scope = "function"
+# The deselection is what makes a bare `pytest` offline and free — the marked
+# tests are skipped before anything imports a database driver or a real client.
+# `pytest -m db` overrides it; a command-line -m beats this one.
+addopts = "-q --strict-markers -m 'not db and not live'"
 markers = [
     "live: hits the real Anthropic API and costs money; deselected by default",
+    "db: requires a live Postgres (REVIEWHIVE_DATABASE_URL); deselected by default",
 ]
 
 [tool.ruff]
