@@ -12,24 +12,33 @@ from pathlib import Path
 
 import pytest
 
-from reviewhive.config import get_settings
+from reviewhive.config import Settings, get_settings
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True)
 def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Detach every test from whatever is in the developer's `.env`.
+    """Detach every test from the developer's local configuration.
 
-    The API key is cleared so an accidental real client fails loudly rather than
-    quietly spending money. Every `REVIEWHIVE_*` variable goes too, so a local
-    `.env` cannot point a test at a live database or change a budget out from
-    under an assertion. `get_settings` is `lru_cache`d, so its cache has to be
-    dropped either side of the change or the scrubbing is invisible to it.
+    `Settings` draws from two sources, and both have to be cut or the isolation is
+    only apparent. Environment variables are the obvious one: the API key goes so
+    an accidental real client fails loudly rather than quietly spending money, and
+    every `REVIEWHIVE_*` goes so a local value cannot change a budget out from
+    under an assertion.
+
+    The `.env` *file* is the one that bites. Clearing environment variables does
+    nothing to it, so a developer who fills in `.env` — which the README tells
+    them to do — silently changes what the suite is testing. Point `env_file` at
+    nothing for the duration instead.
+
+    `get_settings` is `lru_cache`d, so the cache has to be dropped either side or
+    none of this is visible to it.
     """
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     for name in [k for k in os.environ if k.startswith("REVIEWHIVE_")]:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
 
     get_settings.cache_clear()
     yield
