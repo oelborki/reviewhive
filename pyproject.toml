@@ -12,14 +12,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Added in Phase 2/3. Kept separate so Phase 1 installs stay small.
+# Kept separate so a Phase 1 install stays small. `db` is split from `service`
+# because persistence arrived a phase before the webhook: running the CLI against
+# Postgres should not pull in a web server.
+db = [
+    "sqlalchemy[asyncio]==2.0.44",
+    "asyncpg==0.30.0",
+    "alembic==1.18.5",
+]
 service = [
+    "reviewhive[db]",
     "fastapi==0.121.2",
     "uvicorn[standard]==0.40.0",
     "httpx==0.28.1",
-    "sqlalchemy[asyncio]==2.0.44",
-    "asyncpg==0.30.0",
-    "alembic==1.16.6",
 ]
 dev = [
     "pytest==8.4.2",
