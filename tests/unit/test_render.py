@@ -135,3 +135,33 @@ class TestSummary:
 
         assert "`src/app/auth.py` —" in summary
         assert "auth.py`:" not in summary
+
+    def test_a_finding_with_no_line_still_states_its_reasoning(self) -> None:
+        """The gap this closes: with no line there is no inline comment to carry
+        the body, and the index above is a title alone. The reader would get an
+        accusation with no argument behind it."""
+        summary = render_summary(result(findings=[merged(line=None)]))
+
+        assert "Use a parameterised query instead." in summary
+        assert "File-level findings (1)" in summary
+
+    def test_anchored_findings_are_left_to_their_inline_comments(self) -> None:
+        """Their bodies belong on the line, not repeated in the summary."""
+        summary = render_summary(result(findings=[merged(line=13)]))
+
+        assert "File-level findings" not in summary
+        assert "Use a parameterised query instead." not in summary
+
+    def test_only_the_unplaced_findings_are_expanded(self) -> None:
+        summary = render_summary(
+            result(
+                findings=[
+                    merged(line=13, body="Anchored body."),
+                    merged(line=None, title="Module mixes concerns", body="Unplaced body."),
+                ]
+            )
+        )
+
+        assert "File-level findings (1)" in summary
+        assert "Unplaced body." in summary
+        assert "Anchored body." not in summary

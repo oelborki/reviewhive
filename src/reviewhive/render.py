@@ -69,6 +69,11 @@ def render_summary(result: ReviewResult) -> str:
             f"only the highest-ranked are posted._"
         )
 
+    unplaced = _unplaced_note(result)
+    if unplaced:
+        lines.append("")
+        lines.append(unplaced)
+
     coverage = _coverage_note(result)
     if coverage:
         lines.append("")
@@ -100,6 +105,32 @@ def _index_entry(finding: MergedFinding) -> str:
     location = f"`{finding.file}`" + (f":{finding.line}" if finding.line else "")
     agreement = f" ({len(finding.sources)} agents)" if len(finding.sources) > 1 else ""
     return f"- {location} — {finding.title}{agreement}"
+
+
+def _unplaced_note(result: ReviewResult) -> str:
+    """Findings with no line, in full.
+
+    These reach no other surface. `anchors.py` clears the line of anything it
+    cannot place in the diff, which means no inline comment can carry them, and
+    the index above is a title on its own. A claim without its reasoning is worse
+    than no claim, so the body belongs here.
+
+    Derived from the finding rather than passed in by the caller: having nowhere
+    to anchor is a property of the finding, and `review_local.py --markdown`
+    promises to print what would be posted — a parameter the CLI does not pass
+    would quietly make that false.
+    """
+    unplaced = [f for f in result.findings if f.line is None]
+    if not unplaced:
+        return ""
+
+    entries = "\n\n".join(
+        f"**{finding.title}** in `{finding.file}`\n\n{finding.body}" for finding in unplaced
+    )
+    return (
+        f"<details>\n<summary>File-level findings ({len(unplaced)})</summary>\n\n"
+        f"{entries}\n\n</details>"
+    )
 
 
 def _coverage_note(result: ReviewResult) -> str:
