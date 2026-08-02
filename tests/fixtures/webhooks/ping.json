@@ -1,0 +1,23 @@
+{
+  "zen": "Non-blocking is better than blocking.",
+  "hook_id": 0,
+  "repository": {
+    "id": 1320493842,
+    "name": "reviewhive-demo",
+    "full_name": "oelborki/reviewhive-demo",
+    "private": true,
+    "owner": {
+      "login": "oelborki",
+      "id": 156924166,
+      "type": "User",
+      "site_admin": false
+    },
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "oelborki",
+    "id": 156924166,
+    "type": "User",
+    "site_admin": false
+  }
+}

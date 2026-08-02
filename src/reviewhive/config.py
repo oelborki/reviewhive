@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Anything else — a bare `postgresql://`, or `psycopg2` — fails deep inside
 # SQLAlchemy with an error about a missing greenlet, which reads as a bug in this
@@ -48,11 +49,52 @@ class Settings(BaseSettings):
     agent_timeout_seconds: float = 120.0
     agent_max_retries: int = 2
 
+    # --- GitHub ---
+    # Prefixed rather than aliased to the bare GITHUB_TOKEN / GITHUB_WEBHOOK_SECRET.
+    # `anthropic_api_key` is aliased because the Anthropic SDK reads that variable, so
+    # the alias buys real interoperability. Nothing reads GITHUB_TOKEN here — httpx
+    # reads no environment — and GitHub Actions injects that name into every job, so a
+    # bare alias would hand CI's own token to a suite whose whole point is that it has
+    # no credentials.
+    github_token: str | None = None
+    github_webhook_secret: str | None = None
+
+    # Empty denies everything. With a public smee channel forwarding to a laptop,
+    # allow-by-default means anyone who guesses the URL spends the Anthropic budget.
+    allowed_repos: Annotated[frozenset[str], NoDecode] = frozenset()
+
+    github_api_url: str = "https://api.github.com"
+    github_timeout_seconds: float = 30.0
+
+    # Unlike `enable_llm_merge`, this one is read on every delivery. Off because
+    # `synchronize` fires per push with a fresh head sha, so the head-sha idempotency
+    # cannot collapse a five-commit burst — that is five reviews and five bills.
+    review_on_synchronize: bool = False
+
     # --- Persistence ---
     # Unset means "do not persist". The CLI is the prompt-iteration loop and has to
     # keep working with no database running, so this is optional rather than
     # required, and a missing value is a supported configuration, not an error.
     database_url: str | None = None
+
+    @field_validator("allowed_repos", mode="before")
+    @classmethod
+    def _split_repos(cls, value: object) -> frozenset[str]:
+        # `NoDecode` above is what makes this reachable. Without it pydantic-settings
+        # runs `json.loads` on the raw environment value for a complex type *before*
+        # any validator, so `a/b,c/d` raises SettingsError and this never runs.
+        if isinstance(value, str):
+            value = value.split(",")
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise ValueError("allowed_repos must be a comma-separated string or a sequence")
+
+        repos = frozenset(str(part).strip().lower() for part in value if str(part).strip())
+        for repo in repos:
+            # Checked at load, not at first delivery. A typo here otherwise 403s every
+            # webhook and sends you hunting through the plumbing instead of the config.
+            if repo.count("/") != 1 or " " in repo or repo.startswith("/") or repo.endswith("/"):
+                raise ValueError(f"allowed_repos entries must be owner/repo, got {repo!r}")
+        return repos
 
     @field_validator("database_url")
     @classmethod

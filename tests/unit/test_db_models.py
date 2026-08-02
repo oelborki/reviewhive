@@ -67,6 +67,27 @@ def test_findings_are_identified_by_posted_rank() -> None:
     assert ("review_id", "ordinal") in unique
 
 
+def test_a_delivery_can_only_be_recorded_once() -> None:
+    """The actual idempotency guarantee. GitHub redelivers on timeout and has a
+    Redeliver button, and two concurrent redeliveries both pass a SELECT — only a
+    constraint decides which one wins. The query in the handler is ergonomics; this
+    is correctness."""
+    unique = {
+        tuple(c.name for c in con.columns)
+        for con in ReviewRow.__table__.constraints
+        if con.__class__.__name__ == "UniqueConstraint"
+    }
+    assert ("delivery_id",) in unique
+
+
+def test_a_review_can_exist_before_its_diff_does() -> None:
+    """A webhook answers 202 before fetching the diff, because the fetch is the
+    slow call and GitHub's delivery timeout is not. The row is written first, so
+    the hash columns have to tolerate not knowing yet."""
+    assert ReviewRow.__table__.c.diff_sha256.nullable
+    assert ReviewRow.__table__.c.diff_bytes.nullable
+
+
 def test_cost_columns_are_exact_not_floating_point() -> None:
     """These are summed and compared against a printed figure, so they cannot be
     floats. A hundred-token call is $0.0001 and must not round to zero."""

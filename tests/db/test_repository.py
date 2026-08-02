@@ -7,6 +7,7 @@ actually queryable — which is the goal this phase exists to reach.
 
 from __future__ import annotations
 
+import hashlib
 from decimal import Decimal
 
 import pytest
@@ -15,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from reviewhive.db.models import AgentCallRow, FindingRow, ReviewRow
 from reviewhive.models import AgentCall, MergedFinding, ReviewResult
+from reviewhive.persistence import DuplicateDelivery, GitHubRef
 
 # Declared per module: a conftest-level pytestmark is silently ignored.
 pytestmark = pytest.mark.db
@@ -220,6 +222,139 @@ class TestLifecycle:
 
         assert row.error == "timeout"
         assert row.cost_usd == Decimal(0), "no tokens, but priced rather than unknown"
+
+
+class TestPullRequestReviews:
+    """The webhook's write path, which the fake cannot check: the schema has to
+    accept a row with no diff, and the constraint has to reject a replay."""
+
+    def ref(self, **overrides) -> GitHubRef:
+        base = {
+            "repo_full_name": "oelborki/reviewhive-demo",
+            "pr_number": 1,
+            "head_sha": "a" * 40,
+            "delivery_id": "f51b2160-8ea5-11f1-802a-ba3289ad09b9",
+        }
+        return GitHubRef(**{**base, **overrides})
+
+    async def test_a_review_can_be_recorded_before_its_diff_exists(
+        self, store, engine
+    ) -> None:
+        """The whole reason the hash columns became nullable: a delivery has to be
+        acknowledged before the slow fetch runs."""
+        review_id = await store.start_review(source="webhook", github=self.ref())
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(select(ReviewRow).where(ReviewRow.id == review_id))).one()
+
+        assert row.status == "pending"
+        assert row.diff_sha256 is None
+        assert row.diff_bytes is None
+        assert row.repo_full_name == "oelborki/reviewhive-demo"
+        assert row.pr_number == 1
+
+    async def test_marking_running_attaches_the_diff(self, store, engine) -> None:
+        """Status and hash move in one write, so the row is never `running` while
+        claiming a diff it does not have."""
+        review_id = await store.start_review(source="webhook", github=self.ref())
+        await store.mark_running(review_id, diff_text=DIFF)
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(select(ReviewRow).where(ReviewRow.id == review_id))).one()
+
+        assert row.status == "running"
+        assert row.diff_sha256 == hashlib.sha256(DIFF.encode()).hexdigest()
+        assert row.diff_bytes == len(DIFF.encode())
+
+    async def test_the_same_delivery_cannot_be_recorded_twice(self, store) -> None:
+        """The guarantee the handler's lookup cannot give. Two concurrent
+        redeliveries both pass a SELECT; only this stops the second one."""
+        await store.start_review(source="webhook", github=self.ref())
+
+        with pytest.raises(DuplicateDelivery):
+            await store.start_review(source="webhook", github=self.ref())
+
+    async def test_a_different_delivery_for_the_same_head_is_allowed(self, store) -> None:
+        """Only the delivery is unique. A retry after a failed review has to stay
+        possible for the same commit."""
+        await store.start_review(source="webhook", github=self.ref())
+        second = await store.start_review(source="webhook", github=self.ref(delivery_id="other"))
+
+        assert second is not None
+
+    async def test_cli_rows_do_not_collide_on_a_null_delivery(self, store) -> None:
+        """Postgres ignores NULLs in a unique index, which is what lets every
+        existing CLI row coexist with the constraint."""
+        await store.start_review(source="cli", diff_text=DIFF)
+        await store.start_review(source="cli", diff_text=DIFF)
+
+    async def test_a_delivery_can_be_looked_up(self, store) -> None:
+        review_id = await store.start_review(source="webhook", github=self.ref())
+
+        found = await store.find_review_by_delivery(self.ref().delivery_id)
+
+        assert found is not None
+        assert found.id == review_id
+        assert found.status == "pending"
+
+    async def test_an_unknown_delivery_is_none(self, store) -> None:
+        assert await store.find_review_by_delivery("never-seen") is None
+
+    async def test_the_latest_review_for_a_head_is_the_most_recent(self, store) -> None:
+        """`opened` followed immediately by `ready_for_review` is the real case,
+        and reviewing the same commit twice costs money and posts twice."""
+        await store.start_review(source="webhook", github=self.ref(delivery_id="first"))
+        second = await store.start_review(source="webhook", github=self.ref(delivery_id="second"))
+
+        found = await store.find_latest_review_for_head(
+            repo_full_name="oelborki/reviewhive-demo", pr_number=1, head_sha="a" * 40
+        )
+
+        assert found is not None
+        assert found.id == second
+
+    async def test_a_different_head_is_not_matched(self, store) -> None:
+        await store.start_review(source="webhook", github=self.ref())
+
+        assert (
+            await store.find_latest_review_for_head(
+                repo_full_name="oelborki/reviewhive-demo", pr_number=1, head_sha="b" * 40
+            )
+            is None
+        )
+
+    async def test_posting_is_recorded_without_touching_status(self, store, engine) -> None:
+        """A failed post is not a failed review. Conflating them would make
+        `failed` mean two different things."""
+        review_id = await store.start_review(source="webhook", github=self.ref())
+        await store.mark_running(review_id, diff_text=DIFF)
+        await store.finish_review(review_id, full_result(), elapsed_ms=1000)
+        await store.record_posted_review(review_id, posted_review_id=4839508909, comment_count=2)
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(select(ReviewRow).where(ReviewRow.id == review_id))).one()
+
+        assert row.status == "succeeded"
+        assert row.posted_review_id == 4839508909
+        assert row.posted_comment_count == 2
+
+    async def test_a_review_that_never_reached_github_is_findable(self, store, engine) -> None:
+        """`posted_review_id IS NULL AND status = 'succeeded'` is the query for
+        work that was paid for and never delivered."""
+        review_id = await store.start_review(source="webhook", github=self.ref())
+        await store.mark_running(review_id, diff_text=DIFF)
+        await store.finish_review(review_id, full_result(), elapsed_ms=1000)
+
+        async with engine.connect() as conn:
+            undelivered = (
+                await conn.execute(
+                    select(func.count())
+                    .select_from(ReviewRow)
+                    .where(ReviewRow.status == "succeeded", ReviewRow.posted_review_id.is_(None))
+                )
+            ).scalar_one()
+
+        assert undelivered == 1
 
 
 class TestConstraints:

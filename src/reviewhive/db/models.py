@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -68,9 +69,13 @@ class ReviewRow(Base):
     'succeeded' and 'cli', because they are the two columns that change the shape
     of the write path rather than just the contents of a row. `status` is what
     forces the two-call repository API, and the webhook needs a row to exist
-    before the review starts. Everything else the webhook will want —
-    repo_full_name, pr_number, delivery_id — is a nullable additive column and is
-    deliberately *not* pre-added.
+    before the review starts.
+
+    The pull-request columns arrived with the webhook and are all nullable, so a
+    CLI row is still a valid row. `diff_sha256` and `diff_bytes` became nullable
+    at the same time, which is the one thing here that was not purely additive: a
+    webhook must answer 202 before fetching the diff, so the row exists before
+    there is a diff to hash.
     """
 
     __tablename__ = "reviews"
@@ -83,12 +88,42 @@ class ReviewRow(Base):
     source: Mapped[str] = mapped_column(String(16), nullable=False)
 
     # The diff itself is not stored: unbounded in size, usually someone else's
-    # source, and re-fetchable by PR ref in Phase 3. The hash still answers "was
-    # this the same diff?" in 64 bytes. The cost accepted is that a review cannot
-    # be replayed offline from the database alone.
-    diff_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    diff_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # source, and re-fetchable by PR ref. The hash still answers "was this the
+    # same diff?" in 64 bytes. The cost accepted is that a review cannot be
+    # replayed offline from the database alone.
+    #
+    # Nullable because a webhook row is written before the diff is fetched — the
+    # delivery has to be acknowledged inside GitHub's timeout, and the fetch is
+    # the slow call. `mark_running` fills both in at the moment the diff exists,
+    # so a row never claims a hash it does not have.
+    diff_sha256: Mapped[str | None] = mapped_column(String(64))
+    diff_bytes: Mapped[int | None] = mapped_column(Integer)
     diff_path: Mapped[str | None] = mapped_column(Text)
+
+    # --- Where the review came from, when it came from a pull request ---
+    repo_full_name: Mapped[str | None] = mapped_column(Text)
+    pr_number: Mapped[int | None] = mapped_column(Integer)
+    head_sha: Mapped[str | None] = mapped_column(String(40))
+
+    # GitHub's X-GitHub-Delivery. Typed as an opaque string rather than a UUID:
+    # it is a vendor identifier, and giving it a shape is a bet on a format that
+    # is not ours to guarantee. UNIQUE is the actual idempotency guarantee —
+    # redelivery is routine, two concurrent redeliveries both pass a SELECT, and
+    # only a constraint decides which one wins. Postgres ignores NULLs here, so
+    # every CLI row coexists.
+    delivery_id: Mapped[str | None] = mapped_column(String(64))
+
+    # Proof the review reached the pull request. `posted_review_id IS NULL AND
+    # status = 'succeeded'` is exactly "reviewed but never delivered".
+    posted_review_id: Mapped[int | None] = mapped_column(BigInteger)
+    # How many findings actually went inline. Derivable from findings.line for a
+    # normal run, and *not* derivable when the 422 fallback strips the comments —
+    # which is also the more interesting question: did the degradation fire?
+    posted_comment_count: Mapped[int | None] = mapped_column(SmallInteger)
+
+    # Set when a mention narrowed the run. Stored because a narrowed review is
+    # not comparable to a full one, and a cost query that mixes them is wrong.
+    focus: Mapped[str | None] = mapped_column(Text)
 
     suppressed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -123,8 +158,17 @@ class ReviewRow(Base):
     __table_args__ = (
         CheckConstraint(_in("status", REVIEW_STATUSES), name="status"),
         CheckConstraint(_in("source", REVIEW_SOURCES), name="source"),
+        UniqueConstraint("delivery_id"),
         Index("ix_reviews_created_at", created_at.desc()),
         Index("ix_reviews_diff_sha256", "diff_sha256"),
+        # Plain, not unique. A review that failed must be retryable for the same
+        # head sha, so this is only there to make the lookup cheap.
+        Index(
+            "ix_reviews_repo_full_name_pr_number_head_sha",
+            "repo_full_name",
+            "pr_number",
+            "head_sha",
+        ),
     )
 
 
