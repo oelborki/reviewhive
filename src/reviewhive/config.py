@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     min_confidence: float = 0.35
 
     # --- Dedup ---
-    enable_llm_merge: bool = True
+    # Off because there is no merge pass to enable. The deterministic collapse in
+    # `graph/dedupe.py` is the whole of deduplication today; this flag reserves the
+    # name for the second pass and must stay False until one exists, or it reads as
+    # a feature that silently does nothing.
+    enable_llm_merge: bool = False
     # Findings within this many lines of each other are candidates for the same issue.
     dedupe_line_tolerance: int = 3
     # Jaccard overlap on title tokens above which two findings collapse without an LLM call.
