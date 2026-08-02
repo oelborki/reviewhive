@@ -45,10 +45,15 @@ than assuming it.
 **Deduplication is deterministic first.** Findings in the same file within a few
 lines of each other, whose titles overlap above a threshold, collapse into one
 finding that records which agents raised it. Only the residue that co-locates but
-does not textually match is left alone for now — an LLM merge pass is the intended
-second step, deliberately deferred because it is the one piece of this with no
-objective success criterion, and worth building against real duplicate data rather
-than a guess. `settings.enable_llm_merge` reserves the name and defaults to off.
+does not textually match is left alone for now.
+
+An LLM merge pass is the intended second step, deferred to Phase 4 rather than
+built alongside the rest of persistence. It is the one piece of this with no
+objective success criterion — the point at which "is this the same finding?"
+becomes a judgement call — and the honest way to build it is against duplicates
+that actually survived, which the `findings` table now records. Building it first
+would have meant tuning a threshold against a guess.
+`settings.enable_llm_merge` reserves the name and defaults to off.
 
 Agreement is recorded but does not raise confidence. That was the original design
 and measurement killed it: probing one agent at a time shows the reviewers are not
@@ -178,7 +183,7 @@ database not named `reviewhive_test`.
 | 1 | Review pipeline against local diffs | **Done** |
 | 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
 | 3 | Webhook endpoint, signature verification, inline review comments | Next |
-| 4 | Full test coverage, CI | |
+| 4 | Full test coverage, CI, LLM merge pass | |
 | 5 | Docker, temporary deploy, demo | |
 
 ## Deliberately out of scope
