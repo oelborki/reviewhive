@@ -59,6 +59,12 @@ markers = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests", "scripts"]
+# Migration bodies are written by `alembic revision --autogenerate` in its own
+# style. Reformatting them means re-doing it after every generation, and a
+# migration that has been hand-edited for line length is harder to trust than one
+# that is plainly what the tool emitted. `migrations/env.py` is hand-written and
+# stays linted.
+exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
