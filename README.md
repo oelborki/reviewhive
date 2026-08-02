@@ -56,6 +56,15 @@ that actually survived, which the `findings` table now records. Building it firs
 would have meant tuning a threshold against a guess.
 `settings.enable_llm_merge` reserves the name and defaults to off.
 
+The first live review supplied both halves of that judgement call. A real
+duplicate survived: the same missing auth check filed one line apart by two
+agents, uncollapsed because their titles share almost no words. And a tempting
+fix turned out to be a trap — two findings with an *identical* title four lines
+apart were two different vulnerabilities, one injecting a path parameter and one
+a database value. Widening the line tolerance to catch the first would have
+merged the second pair and silently dropped a real finding. Matching text is not
+matching meaning, in either direction.
+
 Agreement is recorded but does not raise confidence. That was the original design
 and measurement killed it: probing one agent at a time shows the reviewers are not
 independent observers — they converge on whatever defect is most salient in the
@@ -76,6 +85,12 @@ is checked against the parsed diff. A near miss snaps to the real line, an
 implausible one degrades the finding to file-level, and a finding naming a file
 outside the diff is discarded. This matters because GitHub rejects an entire review
 request if any single comment anchor is invalid.
+
+On the first live review, 14 of 15 inline comments landed on the defect line
+itself, checked against the source rather than against the validator. The
+fifteenth pointed at a route decorator three lines above the condition it
+described — inside the right function, and readable, but not exact. Line-perfect
+anchoring is not a claim this makes.
 
 ## Running it
 
@@ -108,10 +123,11 @@ so the pair separates an agent straying because security is eye-catching from on
 straying because its own lane is empty.
 
 Cost on `claude-haiku-4-5`, measured: **$0.013** for a small single-file diff,
-**$0.023** for a real six-file pull request (~6,400 input tokens per agent). It
-scales with diff size, so treat the smaller figure as a floor rather than a
-typical PR. Both scripts print the exact figure and per-agent latency for every
-run.
+**$0.023** for a real six-file pull request (~6,400 input tokens per agent), and
+**$0.028 in 10.6 s** for the first end-to-end webhook review — a four-file diff
+that produced 25 findings, of which 15 were posted. It scales with diff size, so
+treat the smallest figure as a floor rather than a typical PR. Both scripts print
+the exact figure and per-agent latency for every run.
 
 ## Reviewing real pull requests
 
