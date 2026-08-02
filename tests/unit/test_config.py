@@ -28,6 +28,13 @@ class TestDatabaseUrl:
         url = "postgresql+asyncpg://reviewhive:reviewhive@localhost:5432/reviewhive"
         assert Settings(anthropic_api_key="test", database_url=url).database_url == url
 
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_a_blank_url_means_unset_rather_than_invalid(self, blank: str) -> None:
+        """`REVIEWHIVE_DATABASE_URL=` is how you turn persistence off for a single
+        run without editing .env. Rejecting it would make the obvious gesture an
+        error."""
+        assert Settings(anthropic_api_key="test", database_url=blank).database_url is None
+
     @pytest.mark.parametrize(
         "url",
         [

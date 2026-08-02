@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _require_async_driver(cls, value: str | None) -> str | None:
+        # Blank reads as unset. `REVIEWHIVE_DATABASE_URL=` is how anyone turns
+        # persistence off for one run without editing .env, and rejecting it would
+        # make the obvious gesture an error.
+        if value is not None and not value.strip():
+            return None
         if value is not None and not value.startswith(_ASYNC_DRIVER):
             raise ValueError(
                 f"database_url must use the asyncpg driver, i.e. start with "
