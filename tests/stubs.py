@@ -38,12 +38,20 @@ class StubAnthropic:
     """Quacks like `AsyncAnthropic` for the two methods the app uses."""
 
     responses: dict[str, list[Finding]] = field(default_factory=dict)
+    # Canned results for schemas other than `AgentFindings`, keyed by the output
+    # model's class name. The mention paths ask for their own shapes, and a stub
+    # that only knows how to be a reviewer cannot stand in for them.
+    outputs: dict[str, object] = field(default_factory=dict)
     latency: float = 0.0
     tokens_per_call: int = 100
     errors: dict[str, Exception] = field(default_factory=dict)
     refusals: set[str] = field(default_factory=set)
 
     parse_calls: list[str] = field(default_factory=list)
+    # The user turn each agent was sent. Recorded because the system prompt is
+    # identical on every run, so anything per-request — the diff, a focus — can
+    # only be asserted here.
+    user_messages: list[str] = field(default_factory=list)
     count_calls: list[str] = field(default_factory=list)
     max_concurrent: int = 0
     _in_flight: int = 0
@@ -51,7 +59,14 @@ class StubAnthropic:
     def __post_init__(self) -> None:
         self.messages = SimpleNamespace(parse=self._parse, count_tokens=self._count_tokens)
 
-    async def _parse(self, *, system: str, output_format=None, **_kwargs):
+    async def _parse(self, *, system: str, messages=None, output_format=None, **_kwargs):
+        if messages:
+            self.user_messages.append(messages[0]["content"])
+
+        schema = getattr(output_format, "__name__", "AgentFindings")
+        if schema != "AgentFindings":
+            return await self._parse_other(schema)
+
         agent = identify_agent(system)
         self.parse_calls.append(agent)
 
@@ -75,6 +90,29 @@ class StubAnthropic:
             )
         finally:
             self._in_flight -= 1
+
+    async def _parse_other(self, schema: str):
+        """A call asking for something other than findings.
+
+        Recorded under the schema name rather than an agent name: these have no
+        specialty to identify, and the system prompt they carry is not a
+        reviewer's.
+        """
+        self.parse_calls.append(schema)
+        if self.latency:
+            await asyncio.sleep(self.latency)
+        if schema in self.errors:
+            raise self.errors[schema]
+
+        return SimpleNamespace(
+            parsed_output=self.outputs.get(schema),
+            stop_reason="refusal" if schema in self.refusals else "end_turn",
+            usage=SimpleNamespace(
+                input_tokens=self.tokens_per_call,
+                output_tokens=40,
+                cache_read_input_tokens=0,
+            ),
+        )
 
     async def _count_tokens(self, *, messages, **_kwargs):
         text = messages[0]["content"]

@@ -53,6 +53,23 @@ class ReviewRef:
     status: str
 
 
+@dataclass(frozen=True)
+class StoredFinding:
+    """A finding as it was posted, read back to answer a question about it.
+
+    Carries the body as well as the headline: a rebuttal has to be judged against
+    the original reasoning, and reconsidering a one-line title makes agreeing the
+    path of least resistance.
+    """
+
+    ordinal: int
+    file: str
+    line: int | None
+    severity: str
+    title: str
+    body: str
+
+
 class DuplicateDelivery(Exception):
     """This delivery has already been recorded.
 
@@ -145,6 +162,29 @@ class ReviewStore(Protocol):
         """
         ...
 
+    async def latest_findings(
+        self, *, repo_full_name: str, pr_number: int
+    ) -> list[StoredFinding]:
+        """What the most recent successful review of this pull request reported.
+
+        The context a mention needs: a question is about these, and a rebuttal
+        argues with one of them. Empty when nothing has been reviewed yet, which
+        the caller should treat as "there is nothing to discuss" rather than as an
+        error.
+        """
+        ...
+
+    async def count_recent_mentions(
+        self, *, repo_full_name: str, pr_number: int, within_seconds: int
+    ) -> int:
+        """How many mention runs this pull request has had lately.
+
+        Anyone who can comment can spend money, and the self-login guard only stops
+        the bot answering itself. This is what stops a person, or a loop nobody
+        predicted, from doing it repeatedly.
+        """
+        ...
+
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         """The review recorded for this delivery, if any.
 
@@ -217,6 +257,18 @@ class NullReviewStore:
 
     async def get_review(self, review_id: UUID) -> ReviewRef | None:
         return None
+
+    async def latest_findings(
+        self, *, repo_full_name: str, pr_number: int
+    ) -> list[StoredFinding]:
+        # Nothing was stored, so nothing can be discussed. With no database a
+        # mention can only become a review, which is the honest degradation.
+        return []
+
+    async def count_recent_mentions(
+        self, *, repo_full_name: str, pr_number: int, within_seconds: int
+    ) -> int:
+        return 0
 
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         # Nothing was stored, so nothing is a duplicate. A webhook run with no

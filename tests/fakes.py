@@ -13,7 +13,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from reviewhive.models import ReviewResult
-from reviewhive.persistence import DuplicateDelivery, GitHubRef, ReviewRef
+from reviewhive.persistence import DuplicateDelivery, GitHubRef, ReviewRef, StoredFinding
 from reviewhive.pricing import total_cost
 
 
@@ -34,6 +34,7 @@ class SavedReview:
     github: GitHubRef | None = None
     posted_review_id: int | None = None
     posted_comment_count: int | None = None
+    focus: str | None = None
 
 
 @dataclass
@@ -100,6 +101,47 @@ class InMemoryReviewStore:
         saved = self.reviews.get(review_id)
         return ReviewRef(id=saved.id, status=saved.status) if saved else None
 
+    async def latest_findings(
+        self, *, repo_full_name: str, pr_number: int
+    ) -> list[StoredFinding]:
+        matches = [
+            saved
+            for saved in self.reviews.values()
+            if saved.github
+            and saved.github.repo_full_name == repo_full_name
+            and saved.github.pr_number == pr_number
+            and saved.status == "succeeded"
+            and saved.source != "mention"
+            and saved.result is not None
+        ]
+        if not matches:
+            return []
+        return [
+            StoredFinding(
+                ordinal=ordinal,
+                file=finding.file,
+                line=finding.line,
+                severity=finding.severity,
+                title=finding.title,
+                body=finding.body,
+            )
+            for ordinal, finding in enumerate(matches[-1].result.findings)
+        ]
+
+    async def count_recent_mentions(
+        self, *, repo_full_name: str, pr_number: int, within_seconds: int
+    ) -> int:
+        # No clock here: the fake keeps insertion order, and every review it holds
+        # was made during the test. Recency is the real store's problem.
+        return sum(
+            1
+            for saved in self.reviews.values()
+            if saved.source == "mention"
+            and saved.github
+            and saved.github.repo_full_name == repo_full_name
+            and saved.github.pr_number == pr_number
+        )
+
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         for saved in self.reviews.values():
             if saved.github and saved.github.delivery_id == delivery_id:
@@ -135,6 +177,7 @@ class InMemoryReviewStore:
         saved.result = result
         saved.total_cost_usd = total_cost(result)
         saved.elapsed_ms = elapsed_ms
+        saved.focus = result.focus
 
     async def fail_review(self, review_id: UUID, error: str) -> None:
         saved = self.reviews[review_id]

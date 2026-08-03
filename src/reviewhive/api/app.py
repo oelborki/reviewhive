@@ -85,11 +85,23 @@ async def _build_deps(settings: Settings) -> tuple[JobDeps, list]:
         store = SqlReviewStore(make_sessionmaker(engine))
         closers.append(engine.dispose)
 
+    # Resolved before the deps are frozen. It is what stops the bot answering its
+    # own comments; a failure here is logged rather than fatal, because a service
+    # that will not start is worse than one that cannot recognise itself — but the
+    # mention handler treats an unknown login as "guard unavailable".
+    try:
+        self_login = await github.whoami()
+    except Exception:
+        logger.exception("could not determine the bot's own login")
+        self_login = None
+
     deps = JobDeps(
         settings=settings,
         graph=build_review_graph(client, settings),
         github=github,
         store=store,
+        client=client,
+        self_login=self_login,
     )
     return deps, closers
 
@@ -100,20 +112,11 @@ def create_app(deps: JobDeps | None = None) -> FastAPI:
         if deps is not None:
             # Injected: this module owns nothing, so it closes nothing.
             app.state.deps = deps
-            app.state.self_login = None
             yield
             return
 
         built, closers = await _build_deps(get_settings())
         app.state.deps = built
-        # Cached once. It is what stops the bot answering its own comments, and
-        # a reply that quotes the mention it was triggered by would otherwise
-        # re-trigger the bot indefinitely, at cost.
-        try:
-            app.state.self_login = await built.github.whoami()
-        except Exception:
-            logger.exception("could not determine the bot's own login")
-            app.state.self_login = None
         try:
             yield
         finally:

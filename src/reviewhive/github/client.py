@@ -153,6 +153,36 @@ class GitHubClient:
         self._raise_for_status(response, f"post a review to {repo_full_name}#{pr_number}")
         return response.json()["id"]
 
+    async def create_issue_comment(self, repo_full_name: str, pr_number: int, body: str) -> int:
+        """Comment on the pull request's conversation.
+
+        Pull request conversation comments live on the *issues* endpoint, which is
+        also why a fine-grained token needs Issues: write to post one.
+        """
+        response = await self._client.post(
+            f"/repos/{repo_full_name}/issues/{pr_number}/comments", json={"body": body}
+        )
+        self._raise_for_status(response, f"comment on {repo_full_name}#{pr_number}")
+        return response.json()["id"]
+
+    async def reply_to_review_comment(
+        self, repo_full_name: str, pr_number: int, comment_id: int, body: str
+    ) -> int:
+        """Reply inside an existing inline comment thread.
+
+        A distinct endpoint from creating a review comment: this one keeps the
+        reply in the thread the reviewer is reading, rather than starting a second
+        conversation about the same line.
+        """
+        response = await self._client.post(
+            f"/repos/{repo_full_name}/pulls/{pr_number}/comments/{comment_id}/replies",
+            json={"body": body},
+        )
+        self._raise_for_status(
+            response, f"reply to comment {comment_id} on {repo_full_name}#{pr_number}"
+        )
+        return response.json()["id"]
+
     @staticmethod
     def _raise_for_status(
         response: httpx.Response, action: str, *, forbidden_hint: str | None = None

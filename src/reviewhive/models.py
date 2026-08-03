@@ -20,6 +20,12 @@ SEVERITY_RANK: dict[Severity, int] = {"high": 3, "medium": 2, "low": 1}
 
 AgentName = Literal["security", "style", "architecture"]
 
+# Everything that can spend tokens on a pull request, which is wider than the set
+# of reviewers. Kept separate from `AgentName` on purpose: `AgentName` also types
+# `MergedFinding.sources`, and a classifier must never be attributable as the
+# source of a finding. Cost telemetry is a different question from authorship.
+CallAgent = Literal["security", "style", "architecture", "intent", "answer", "reconsider"]
+
 
 class Finding(BaseModel):
     """One issue reported by one agent."""
@@ -102,7 +108,7 @@ class AgentCall(BaseModel):
     domain types stay free of a price list.
     """
 
-    agent: AgentName
+    agent: CallAgent
     model: str
     input_tokens: int
     output_tokens: int
@@ -133,3 +139,12 @@ class ReviewResult(BaseModel):
     )
     truncated_files: list[str] = Field(default_factory=list)
     calls: list[AgentCall] = Field(default_factory=list)
+    focus: str | None = Field(
+        default=None,
+        description=(
+            "What the run was narrowed to, when a reviewer asked for a narrower "
+            "second look. Carried on the result rather than held by the caller "
+            "because a narrowed review is not comparable to a full one, and "
+            "anything reading these afterwards needs to know which it has."
+        ),
+    )

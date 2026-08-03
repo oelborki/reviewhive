@@ -51,6 +51,15 @@ class JobDeps:
     graph: Any
     github: GitHubClient
     store: ReviewStore
+    # The same client the graph was built around. Mentions call the model directly
+    # rather than through the graph — a classification or a reply is one request,
+    # not a fan-out — so they need it in hand.
+    client: Any = None
+    # The login this token acts as, resolved once at startup. It is the only
+    # guard that stops the bot answering its own comments, so it lives with the
+    # other dependencies rather than on app state where a lifespan could clobber
+    # it — which is exactly what happened when it did.
+    self_login: str | None = None
 
 
 async def review_pull_request(
@@ -59,8 +68,15 @@ async def review_pull_request(
     review_id: UUID,
     *,
     focus: str | None = None,
+    extra_calls: list | None = None,
 ) -> None:
-    """Fetch, review, record, post."""
+    """Fetch, review, record, post.
+
+    `extra_calls` are calls the caller already made against this same review row —
+    a mention's classifier, for instance. They are folded into the result so one
+    `finish_review` records everything the row cost. Two calls to `finish_review`
+    would duplicate the agent rows and trip the one-call-per-agent constraint.
+    """
     try:
         diff_text = await _fetch(deps, ref, review_id)
         if diff_text is None:
@@ -70,7 +86,7 @@ async def review_pull_request(
 
         started = time.perf_counter()
         try:
-            final_state = await deps.graph.ainvoke({"diff_text": diff_text})
+            final_state = await deps.graph.ainvoke({"diff_text": diff_text, "focus": focus})
         except Exception as exc:
             await deps.store.fail_review(review_id, f"{type(exc).__name__}: {exc}")
             logger.exception("review failed for %s#%s", ref.repo_full_name, ref.pr_number)
@@ -78,6 +94,8 @@ async def review_pull_request(
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
         result = final_state["result"]
+        if extra_calls:
+            result = result.model_copy(update={"calls": [*extra_calls, *result.calls]})
 
         # Persisted before posting, and the choice is between two orphans. This
         # way a failed post leaves a succeeded row with its findings and cost
