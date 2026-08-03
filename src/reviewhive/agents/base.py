@@ -44,14 +44,22 @@ class AgentOutcome:
 
 
 @cache
-def load_prompt(prompt_file: str) -> str:
-    """Compose an agent's system prompt from the shared preamble plus its specialty.
+def load_prompt(prompt_file: str, *, shared: bool = True) -> str:
+    """Compose a system prompt from the shared preamble plus a specialty.
 
     Cached because the graph runs per-PR and these never change at runtime.
+
+    `shared=False` loads the file on its own, for prompts that are not reviewers.
+    `_shared.md` is the *reviewer* contract — stay in your lane, read the gutter,
+    severity and confidence, the finding schema — and none of it applies to a
+    classifier or a responder. Prepending it would hand them instructions for a
+    job they are not doing.
     """
-    shared = (PROMPT_DIR / "_shared.md").read_text(encoding="utf-8")
     specialty = (PROMPT_DIR / prompt_file).read_text(encoding="utf-8")
-    return f"{shared}\n\n---\n\n{specialty}"
+    if not shared:
+        return specialty
+    preamble = (PROMPT_DIR / "_shared.md").read_text(encoding="utf-8")
+    return f"{preamble}\n\n---\n\n{specialty}"
 
 
 def make_token_counter(client: AsyncAnthropic, model: str):

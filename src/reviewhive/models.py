@@ -20,6 +20,12 @@ SEVERITY_RANK: dict[Severity, int] = {"high": 3, "medium": 2, "low": 1}
 
 AgentName = Literal["security", "style", "architecture"]
 
+# Everything that can spend tokens on a pull request, which is wider than the set
+# of reviewers. Kept separate from `AgentName` on purpose: `AgentName` also types
+# `MergedFinding.sources`, and a classifier must never be attributable as the
+# source of a finding. Cost telemetry is a different question from authorship.
+CallAgent = Literal["security", "style", "architecture", "intent", "answer", "reconsider"]
+
 
 class Finding(BaseModel):
     """One issue reported by one agent."""
@@ -102,7 +108,7 @@ class AgentCall(BaseModel):
     domain types stay free of a price list.
     """
 
-    agent: AgentName
+    agent: CallAgent
     model: str
     input_tokens: int
     output_tokens: int

@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     # cannot collapse a five-commit burst — that is five reviews and five bills.
     review_on_synchronize: bool = False
 
+    # The literal string that summons the bot in a comment. Not a real GitHub
+    # mention: the bot acts as a personal access token, so this notifies nobody
+    # and is only a trigger token.
+    mention_handle: str = "@reviewhive"
+
     # --- Persistence ---
     # Unset means "do not persist". The CLI is the prompt-iteration loop and has to
     # keep working with no database running, so this is optional rather than
