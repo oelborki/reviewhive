@@ -1,0 +1,165 @@
+diff --git a/app/auth.py b/app/auth.py
+new file mode 100644
+index 0000000..dc6f64f
+--- /dev/null
++++ b/app/auth.py
+@@ -0,0 +1,25 @@
++"""Token checking."""
++
++from __future__ import annotations
++
++API_SECRET = "sk-demo-4f9a2c1e8b7d6350"
++
++ADMIN_TOKENS = ["admin-token-1", "admin-token-2"]
++
++
++def check_token(token):
++    if token == API_SECRET:
++        return True
++    for t in ADMIN_TOKENS:
++        if token == t:
++            return True
++    return False
++
++
++def is_admin(token):
++    return token in ADMIN_TOKENS
++
++
++def require(token):
++    if not check_token(token):
++        raise Exception("bad token")
+diff --git a/app/db.py b/app/db.py
+index 9ef9d4d..2421fe5 100644
+--- a/app/db.py
++++ b/app/db.py
+@@ -47,3 +47,16 @@ def create_task(title: str, owner: str) -> int:
+             "INSERT INTO tasks (title, owner) VALUES (?, ?)", (title, owner)
+         )
+         return cursor.lastrowid
++
++
++def search_tasks(owner, term):
++    with connect() as conn:
++        return conn.execute(
++            f"SELECT id, title, owner, done FROM tasks "
++            f"WHERE owner = '{owner}' AND title LIKE '%{term}%'"
++        ).fetchall()
++
++
++def mark(id, v):
++    with connect() as conn:
++        conn.execute("UPDATE tasks SET done = " + str(v) + " WHERE id = " + str(id))
+diff --git a/app/main.py b/app/main.py
+index 4a2f3f2..0ff6487 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -2,9 +2,9 @@
+ 
+ from __future__ import annotations
+ 
+-from fastapi import FastAPI
++from fastapi import FastAPI, Request
+ 
+-from app import db
++from app import auth, db, reports
+ from app.models import TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+@@ -30,3 +30,30 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++@app.get("/search/{owner}")
++def search(owner, q, request: Request):
++    token = request.headers.get("x-api-key")
++    auth.require(token)
++    rows = db.search_tasks(owner, q)
++    return [dict(r) for r in rows]
++
++
++@app.post("/tasks/{owner}/{id}/done")
++def done(owner, id, request: Request):
++    db.mark(id, 1)
++    return {"ok": True}
++
++
++@app.get("/admin/report/{owner}")
++def admin_report(owner, request: Request):
++    token = request.headers.get("x-api-key")
++    if auth.is_admin(token) == False:
++        return {"error": "nope"}
++    email = request.query_params.get("email")
++    fmt = request.query_params.get("fmt")
++    if fmt == None:
++        fmt = "text"
++    tmp = reports.build_and_send_report(owner, email, fmt, True, True)
++    return {"report": tmp}
+diff --git a/app/reports.py b/app/reports.py
+new file mode 100644
+index 0000000..80e81c0
+--- /dev/null
++++ b/app/reports.py
+@@ -0,0 +1,60 @@
++"""Reporting."""
++
++from __future__ import annotations
++
++import sqlite3
++import smtplib
++from email.message import EmailMessage
++
++DB_PATH = "tasks.db"
++
++SMTP_HOST = "smtp.example.com"
++SMTP_USER = "reports@example.com"
++SMTP_PASS = "hunter2"
++
++
++def build_and_send_report(owner, email, fmt="text", include_done=True, send=True):
++    conn = sqlite3.connect(DB_PATH)
++    conn.row_factory = sqlite3.Row
++    q = "SELECT id, title, owner, done FROM tasks WHERE owner = '" + owner + "'"
++    if not include_done:
++        q = q + " AND done = 0"
++    rows = conn.execute(q).fetchall()
++    conn.close()
++
++    d = {"total": len(rows), "done": 0, "open": 0}
++    for r in rows:
++        if r["done"]:
++            d["done"] = d["done"] + 1
++        else:
++            d["open"] = d["open"] + 1
++
++    if fmt == "text":
++        body = "Report for " + owner + "\n"
++        body = body + "Total: " + str(d["total"]) + "\n"
++        body = body + "Done: " + str(d["done"]) + "\n"
++        body = body + "Open: " + str(d["open"]) + "\n"
++        for r in rows:
++            body = body + "- [" + ("x" if r["done"] else " ") + "] " + r["title"] + "\n"
++    elif fmt == "html":
++        body = "<h1>Report for " + owner + "</h1>"
++        body = body + "<p>Total: " + str(d["total"]) + "</p>"
++        body = body + "<ul>"
++        for r in rows:
++            body = body + "<li>" + r["title"] + "</li>"
++        body = body + "</ul>"
++    else:
++        body = str(d)
++
++    if send:
++        msg = EmailMessage()
++        msg["Subject"] = "Your task report"
++        msg["From"] = SMTP_USER
++        msg["To"] = email
++        msg.set_content(body)
++        s = smtplib.SMTP(SMTP_HOST)
++        s.login(SMTP_USER, SMTP_PASS)
++        s.send_message(msg)
++        s.quit()
++
++    return body

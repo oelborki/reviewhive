@@ -13,8 +13,10 @@ Each case carries the action it should produce, so a run scores itself. The poin
 is not a perfect score — several cases are genuinely ambiguous and are marked so —
 but to see *which* readings drift when the prompt changes.
 
-Costs roughly a cent for the full set: the comment and the findings list are a few
-hundred tokens, against three agent calls for a real review.
+Costs about **$0.03** for the full set — measured, not estimated. Each call carries
+the findings list as well as the comment, and there are seventeen of them, so it is
+comparable to one real review rather than to a fraction of one. A single group
+(`--only ambiguous`) is under a cent.
 """
 
 from __future__ import annotations
