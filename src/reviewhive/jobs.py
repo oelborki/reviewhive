@@ -70,7 +70,7 @@ async def review_pull_request(
 
         started = time.perf_counter()
         try:
-            final_state = await deps.graph.ainvoke({"diff_text": diff_text})
+            final_state = await deps.graph.ainvoke({"diff_text": diff_text, "focus": focus})
         except Exception as exc:
             await deps.store.fail_review(review_id, f"{type(exc).__name__}: {exc}")
             logger.exception("review failed for %s#%s", ref.repo_full_name, ref.pr_number)

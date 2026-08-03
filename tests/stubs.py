@@ -44,6 +44,10 @@ class StubAnthropic:
     refusals: set[str] = field(default_factory=set)
 
     parse_calls: list[str] = field(default_factory=list)
+    # The user turn each agent was sent. Recorded because the system prompt is
+    # identical on every run, so anything per-request — the diff, a focus — can
+    # only be asserted here.
+    user_messages: list[str] = field(default_factory=list)
     count_calls: list[str] = field(default_factory=list)
     max_concurrent: int = 0
     _in_flight: int = 0
@@ -51,9 +55,11 @@ class StubAnthropic:
     def __post_init__(self) -> None:
         self.messages = SimpleNamespace(parse=self._parse, count_tokens=self._count_tokens)
 
-    async def _parse(self, *, system: str, output_format=None, **_kwargs):
+    async def _parse(self, *, system: str, messages=None, output_format=None, **_kwargs):
         agent = identify_agent(system)
         self.parse_calls.append(agent)
+        if messages:
+            self.user_messages.append(messages[0]["content"])
 
         self._in_flight += 1
         self.max_concurrent = max(self.max_concurrent, self._in_flight)

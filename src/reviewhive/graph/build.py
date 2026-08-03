@@ -68,9 +68,11 @@ async def review_diff(
     client: AsyncAnthropic,
     settings: Settings,
     agents: tuple[AgentSpec, ...] = AGENTS,
+    *,
+    focus: str | None = None,
 ) -> ReviewResult:
     """Convenience wrapper: build, run, and unwrap. Callers holding a long-lived
     process should build the graph once and call `ainvoke` themselves."""
     compiled = build_review_graph(client, settings, agents)
-    final_state = await compiled.ainvoke({"diff_text": diff_text})
+    final_state = await compiled.ainvoke({"diff_text": diff_text, "focus": focus})
     return final_state["result"]

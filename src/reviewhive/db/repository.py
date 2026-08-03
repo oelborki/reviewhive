@@ -126,6 +126,10 @@ class SqlReviewStore:
                     # history the next time a rate changed.
                     total_cost_usd=total_cost(result),
                     elapsed_ms=elapsed_ms,
+                    # Mapped explicitly, like everything else here. A narrowed run
+                    # is not comparable to a full one, so a cost or finding query
+                    # that mixes them silently is answering a different question.
+                    focus=result.focus,
                     finished_at=datetime.now(UTC),
                 )
             )

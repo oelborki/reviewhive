@@ -48,6 +48,12 @@ def render_summary(result: ReviewResult) -> str:
     """The review body: a verdict, a grouped index, and an honest coverage note."""
     lines: list[str] = ["## reviewHive"]
 
+    if result.focus:
+        # Disclosed for the same reason skipped files are: a run that looked at
+        # part of the diff must not read as a verdict on all of it.
+        lines.append("")
+        lines.append(f"_Narrowed to: {result.focus}_")
+
     if not result.findings:
         lines.append("")
         lines.append(_no_findings_verdict(result))

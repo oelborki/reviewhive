@@ -133,3 +133,12 @@ class ReviewResult(BaseModel):
     )
     truncated_files: list[str] = Field(default_factory=list)
     calls: list[AgentCall] = Field(default_factory=list)
+    focus: str | None = Field(
+        default=None,
+        description=(
+            "What the run was narrowed to, when a reviewer asked for a narrower "
+            "second look. Carried on the result rather than held by the caller "
+            "because a narrowed review is not comparable to a full one, and "
+            "anything reading these afterwards needs to know which it has."
+        ),
+    )

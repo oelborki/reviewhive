@@ -34,6 +34,7 @@ class SavedReview:
     github: GitHubRef | None = None
     posted_review_id: int | None = None
     posted_comment_count: int | None = None
+    focus: str | None = None
 
 
 @dataclass
@@ -135,6 +136,7 @@ class InMemoryReviewStore:
         saved.result = result
         saved.total_cost_usd = total_cost(result)
         saved.elapsed_ms = elapsed_ms
+        saved.focus = result.focus
 
     async def fail_review(self, review_id: UUID, error: str) -> None:
         saved = self.reviews[review_id]

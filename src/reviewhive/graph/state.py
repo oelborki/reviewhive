@@ -19,6 +19,10 @@ from reviewhive.models import AgentCall, MergedFinding, ReviewResult
 class ReviewState(TypedDict, total=False):
     # Input
     diff_text: str
+    # Optional narrowing, set when a mention asked for a focused second look.
+    # Read by every agent node and echoed onto the result so the posted summary
+    # can say the run was narrowed.
+    focus: str | None
 
     # Written by prepare_diff
     budget: BudgetedDiff

@@ -57,7 +57,13 @@ async def run_agent_node(state: ReviewState, deps: Deps, spec: AgentSpec) -> Rev
     Returns only what this agent produced; the reducers on `findings` and `calls`
     merge the three branches.
     """
-    outcome = await run_agent(spec, deps.client, state["budget"].prompt_text, deps.settings)
+    outcome = await run_agent(
+        spec,
+        deps.client,
+        state["budget"].prompt_text,
+        deps.settings,
+        focus=state.get("focus"),
+    )
     return {
         "findings": [MergedFinding.from_finding(f, spec.name) for f in outcome.findings],
         "calls": [outcome.call],
@@ -104,6 +110,10 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
             skipped_files=budget.skipped if budget else [],
             truncated_files=budget.truncated if budget else [],
             calls=state.get("calls", []),
+            # Echoed onto the result so the summary can disclose it and the store
+            # can record it. A narrowed review that does not say it was narrowed
+            # reads as a clean bill of health for the whole diff.
+            focus=state.get("focus"),
         )
     }
 
