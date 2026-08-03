@@ -13,17 +13,17 @@ database without anyone deciding it should.
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from reviewhive.db.models import AgentCallRow, FindingRow, ReviewRow
 from reviewhive.models import ReviewResult
-from reviewhive.persistence import DuplicateDelivery, GitHubRef, ReviewRef
+from reviewhive.persistence import DuplicateDelivery, GitHubRef, ReviewRef, StoredFinding
 from reviewhive.pricing import cost_of, total_cost
 
 
@@ -176,6 +176,70 @@ class SqlReviewStore:
                 )
             ).first()
         return ReviewRef(id=row.id, status=row.status) if row else None
+
+    async def latest_findings(
+        self, *, repo_full_name: str, pr_number: int
+    ) -> list[StoredFinding]:
+        async with self._sessionmaker() as session:
+            # The newest *succeeded* review, not the newest row: a failed or still
+            # running one has no findings, and a mention arriving mid-review should
+            # discuss the last review that finished rather than nothing.
+            latest = (
+                select(ReviewRow.id)
+                .where(
+                    ReviewRow.repo_full_name == repo_full_name,
+                    ReviewRow.pr_number == pr_number,
+                    ReviewRow.status == "succeeded",
+                    ReviewRow.source != "mention",
+                )
+                .order_by(ReviewRow.created_at.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            rows = (
+                await session.execute(
+                    select(
+                        FindingRow.ordinal,
+                        FindingRow.file,
+                        FindingRow.line,
+                        FindingRow.severity,
+                        FindingRow.title,
+                        FindingRow.body,
+                    )
+                    .where(FindingRow.review_id == latest)
+                    .order_by(FindingRow.ordinal)
+                )
+            ).all()
+
+        return [
+            StoredFinding(
+                ordinal=row.ordinal,
+                file=row.file,
+                line=row.line,
+                severity=row.severity,
+                title=row.title,
+                body=row.body,
+            )
+            for row in rows
+        ]
+
+    async def count_recent_mentions(
+        self, *, repo_full_name: str, pr_number: int, within_seconds: int
+    ) -> int:
+        cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
+        async with self._sessionmaker() as session:
+            return (
+                await session.execute(
+                    select(func.count())
+                    .select_from(ReviewRow)
+                    .where(
+                        ReviewRow.repo_full_name == repo_full_name,
+                        ReviewRow.pr_number == pr_number,
+                        ReviewRow.source == "mention",
+                        ReviewRow.created_at >= cutoff,
+                    )
+                )
+            ).scalar_one()
 
     async def find_review_by_delivery(self, delivery_id: str) -> ReviewRef | None:
         async with self._sessionmaker() as session:
