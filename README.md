@@ -189,7 +189,8 @@ Replay a captured delivery instead:
 
 ```bash
 uvicorn reviewhive.api.app:app --reload --port 8000
-npx smee-client --url https://smee.io/<channel> --path /webhooks/github --port 8000
+npx smee-client --url https://smee.io/<channel> \
+                --target http://127.0.0.1:8000/webhooks/github
 
 python scripts/replay_webhook.py tests/fixtures/webhooks/pull_request_opened.json
 python scripts/replay_webhook.py <fixture> --repo you/demo --pr 7 --delivery <id>
