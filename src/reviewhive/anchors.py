@@ -2,7 +2,7 @@
 
 Models get the file right far more often than the line. This module is where a
 reported location becomes a trusted one, before anything downstream depends on it.
-Phase 3's GitHub layer translates the result into a review-comment payload; it does
+`github/positions.py` translates the result into a review-comment payload; it does
 not re-derive it, because an anchor GitHub rejects fails the *entire* review
 request rather than the single comment.
 
