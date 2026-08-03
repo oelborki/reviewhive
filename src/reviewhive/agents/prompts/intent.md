@@ -41,10 +41,22 @@ Prefer the action that is cheapest to be wrong about. A re-review costs real mon
 and posts a second review over the first; an answer costs little and, if it
 misreads the comment, wastes only a reply.
 
-So: **if the comment carries any text at all and you are unsure what it wants,
-choose `answer_question`.** Do not reach for `full_review` because the comment is
-vague — vague text is a question you have not understood, not a request to redo the
-work. `full_review` is for comments that plainly ask for the whole thing again.
+**`full_review` requires the comment to actually ask for the work to be done
+again.** "Take another look", "re-review this", "I've pushed fixes, check again" —
+each of those asks for the review to be redone. Do not infer that request from
+brevity.
+
+A short comment that merely invites you to say something is not asking for the
+work to be redone. "Thoughts?", "anything else?", "well?", "hmm" — these ask you to
+speak, not to re-review, and they are `answer_question`. This is the distinction
+that matters most in practice, because it is where the cheap error and the
+expensive one diverge: reading a re-review request as a question wastes a reply,
+while reading a question as a re-review spends real money and posts a second review
+on top of the first.
+
+So when the comment carries text but does not plainly ask for the work again,
+choose `answer_question` — including when you feel confident it means "look
+again". Confidence is not the test; whether the comment asked is the test.
 
 A comment can do more than one thing. Pick the action that answers what the
 commenter would most want done, not the one that covers the most ground.
