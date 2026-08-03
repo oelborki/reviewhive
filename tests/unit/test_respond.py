@@ -12,7 +12,7 @@ from tests.stubs import StubAnthropic, overloaded_error
 
 from reviewhive.config import Settings
 from reviewhive.mentions.intent import PriorFinding
-from reviewhive.mentions.respond import Answer, answer_question
+from reviewhive.mentions.respond import Answer, Verdict, answer_question, reconsider
 
 DIFF = "diff --git a/app/db.py b/app/db.py\n@@ -1 +1 @@\n+q = 'SELECT ' + owner\n"
 FINDINGS = [
@@ -102,6 +102,99 @@ class TestOutput:
         is no severity, file or line for a new defect to occupy, so "while I was
         here" has nowhere to go."""
         assert set(Answer.model_fields) == {"reply"}
+
+
+class TestReconsider:
+    def verdict_stub(self, verdict: Verdict | None = None, **kwargs) -> StubAnthropic:
+        return StubAnthropic(
+            outputs={"Verdict": verdict} if verdict else {}, **kwargs
+        )
+
+    async def test_the_original_reasoning_is_supplied(self, settings) -> None:
+        """Without it the model defends a one-line title whose argument it cannot
+        see, which makes caving the path of least resistance."""
+        client = self.verdict_stub(Verdict(stands=True, reply="It still stands."))
+
+        await reconsider(
+            client,
+            settings,
+            rebuttal="this is intentional",
+            finding=FINDINGS[0],
+            body="`owner` is interpolated into the query without escaping.",
+            diff_text=DIFF,
+        )
+
+        message = client.user_messages[0]
+        assert "`owner` is interpolated into the query without escaping." in message
+        assert "this is intentional" in message
+
+    async def test_a_sustained_finding_is_machine_readable(self, settings) -> None:
+        """`stands` is separate from the prose so "did pushback retire this?" is a
+        query rather than an exercise in reading tone."""
+        client = self.verdict_stub(Verdict(stands=True, reply="Still exploitable."))
+
+        verdict, call = await reconsider(
+            client,
+            settings,
+            rebuttal="it's fine",
+            finding=FINDINGS[0],
+            body="reasoning",
+            diff_text=DIFF,
+        )
+
+        assert verdict is not None and verdict.stands is True
+        assert call.agent == "reconsider"
+
+    async def test_a_withdrawal_is_machine_readable(self, settings) -> None:
+        client = self.verdict_stub(Verdict(stands=False, reply="You're right, withdrawing."))
+
+        verdict, _ = await reconsider(
+            client,
+            settings,
+            rebuttal="validated in middleware",
+            finding=FINDINGS[0],
+            body="reasoning",
+            diff_text=DIFF,
+        )
+
+        assert verdict is not None and verdict.stands is False
+
+    async def test_severity_can_drop_without_withdrawing(self, settings) -> None:
+        """Real but less important is a distinct outcome from wrong, and the
+        schema has to be able to say so."""
+        client = self.verdict_stub(
+            Verdict(stands=True, revised_severity="low", reply="Fair, lowering it.")
+        )
+
+        verdict, _ = await reconsider(
+            client,
+            settings,
+            rebuttal="only reachable from an admin path",
+            finding=FINDINGS[0],
+            body="reasoning",
+            diff_text=DIFF,
+        )
+
+        assert verdict is not None
+        assert verdict.stands is True
+        assert verdict.revised_severity == "low"
+
+    async def test_a_failure_yields_no_verdict(self, settings) -> None:
+        """Silence is right here. A finding whose challenge could not be judged
+        must not be silently retired."""
+        client = self.verdict_stub(errors={"Verdict": overloaded_error()})
+
+        verdict, call = await reconsider(
+            client,
+            settings,
+            rebuttal="anything",
+            finding=FINDINGS[0],
+            body="reasoning",
+            diff_text=DIFF,
+        )
+
+        assert verdict is None
+        assert call.error
 
 
 class TestFailure:
