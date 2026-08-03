@@ -5,9 +5,9 @@ examine the diff **in parallel**, their findings are deduplicated and ranked, an
 the result is posted as a single review.
 
 > **Status: Phase 3 of 5.** Open a pull request on a configured repository and a
-> review with inline comments appears. Runs are persisted to Postgres. Remaining:
-> full CI, the LLM merge pass, and a containerised deployment — see
-> [Roadmap](#roadmap).
+> review with inline comments appears; mention the bot in a comment and it answers.
+> Runs are persisted to Postgres. Remaining: full CI, the LLM merge pass, and a
+> containerised deployment — see [Roadmap](#roadmap).
 
 ## How it works
 
@@ -136,8 +136,9 @@ pip install -e ".[service,db]"
 uvicorn reviewhive.api.app:app --port 8000
 ```
 
-Point a repository's webhook at it, subscribed to **Pull requests**, with the
-content type set to **`application/json`**. The other content type sends the body
+Point a repository's webhook at it, subscribed to **Pull requests**, **Issue
+comments**, and **Pull request review comments**, with the content type set to
+**`application/json`**. The other content type sends the body
 as a form field and signs *that*, so every signature fails and it reads as a
 broken HMAC for an afternoon.
 
@@ -181,6 +182,63 @@ mid-review strands a `running` row. That is the honest cost of running in-proces
 rather than behind a queue; `mark_running` at least makes the orphan diagnosable
 rather than invisible. A worker queue is the scaling path, and deliberately not
 built.
+
+## Talking to it
+
+Mention the bot in a comment and it works out what you want:
+
+```
+@reviewhive                                    re-review the whole thing
+@reviewhive focus on error handling            re-review, narrowed
+@reviewhive why is this a problem?             answers in the thread
+@reviewhive this is validated upstream         re-judges that one finding
+```
+
+There is no command grammar. A cheap `claude-haiku-4-5` call classifies the
+comment into one of four actions and the dispatch is ordinary code, so a misread
+shows up as a logged rationale rather than as behaviour buried inside a reply. A
+bare `@reviewhive` skips the classifier entirely — there is nothing to interpret,
+so there is no reason to pay to interpret it.
+
+**Ambiguity resolves toward the cheap error.** A re-review costs money and posts a
+second review over the first; an answer costs little and, if it misreads, wastes a
+reply. So vague text becomes a question, and so does every classifier failure.
+
+That rule took two attempts. The first version said "if you are unsure, ask a
+question" — and the model was never unsure. It confidently read *"anything else?"*
+and *"thoughts?"* as re-review requests, at $0.03 each. Keying the rule on what the
+comment *asks for* rather than on the model's own confidence fixed it, verified in
+both directions: `scripts/probe_intent.py` scores 18/18 across four groups.
+
+**Replies stay in their lane, and the schema enforces it.** The answer path returns
+one field. There is no severity, file, or line for a new accusation to occupy, so
+"while I was here" has nowhere to go even if the prose wanders. Asked *"while
+you're here, is the rest of this file ok?"*, it declines and says why.
+
+**Pushback is judged, not absorbed.** The reconsider path has two opposite failure
+modes — caving because it was contradicted, and digging in because it filed the
+finding — and each is invisible to the input that catches the other, so
+`scripts/probe_mention.py` probes both. Bare assertion, "it's intentional", "it was
+copied", "we'll fix it later", and an appeal to experience all leave findings
+standing; real context the reviewer could not have seen withdraws them, with the
+assumption named. Told a module was test-only when the diff shows it imported by
+the application, it cites the import.
+
+**Only the bot's own login stops the loop.** Posting one review fires one
+`pull_request_review_comment` delivery per inline comment — fifteen, for the review
+above — and every payload reads `sender.type: "User"` with `author_association:
+"OWNER"`, because the bot acts as a personal access token belonging to a person. A
+bot-type filter and an association filter are both useless against it. The
+self-login comparison runs first for that reason; a rate limit caps how often any
+one pull request can be made to spend money.
+
+Mention runs are recorded like any other run, so one query still answers what a
+pull request cost:
+
+```sql
+SELECT source, count(*), sum(total_cost_usd)
+FROM reviews WHERE repo_full_name = 'you/demo' GROUP BY source;
+```
 
 ### The local loop
 
@@ -256,9 +314,9 @@ FROM findings GROUP BY 1, 2 ORDER BY 3 DESC;
 ## Tests
 
 ```bash
-pytest              # 250 tests, no network, no API spend, no database
+pytest              # 348 tests, no network, no API spend, no database
 ruff check .
-pytest -m db        # 23 more, against the compose Postgres
+pytest -m db        # 30 more, against the compose Postgres
 ```
 
 The default run never contacts the Anthropic API and never needs infrastructure.
@@ -269,10 +327,15 @@ the same treatment: callers depend on a `ReviewStore` protocol, and the unit sui
 runs against an in-memory implementation of it.
 
 The GitHub layer gets the same treatment. `signature.py`, `positions.py`,
-`client.py` and `jobs.py` import neither FastAPI nor SQLAlchemy, so their tests —
-including the full fetch → review → post path — run on a bare install with an
-`httpx.MockTransport` standing in for GitHub. Only the endpoint test needs the
-`service` extra, and it skips rather than fails without it.
+`client.py`, `jobs.py` and `mentions/` import neither FastAPI nor SQLAlchemy, so
+their tests — including the full fetch → review → post path — run on a bare install
+with an `httpx.MockTransport` standing in for GitHub. Only the endpoint tests need
+the `service` extra, and they skip rather than fail without it.
+
+What the offline suite deliberately cannot tell you is whether a *prompt* works.
+That is what `scripts/probe_agent.py`, `probe_intent.py` and `probe_mention.py` are
+for: each runs one thing against real phrasings and scores itself, so a prompt
+change shows which readings moved rather than whether the pipeline still runs.
 
 The `db`-marked tests are the exception and are deselected by default. They build
 their schema by running the migration rather than `create_all()`, so the migration
@@ -286,6 +349,7 @@ database not named `reviewhive_test`.
 | 1 | Review pipeline against local diffs | **Done** |
 | 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
 | 3 | Webhook endpoint, signature verification, inline review comments | **Done** |
+| 3b | Conversational `@reviewhive` mentions | **Done** |
 | 4 | Full test coverage, CI, LLM merge pass | Next |
 | 5 | Docker, temporary deploy, demo | |
 
