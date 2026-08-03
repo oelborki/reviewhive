@@ -14,13 +14,14 @@ pytest.importorskip("sqlalchemy", reason="requires the db extra")
 
 from reviewhive.db.models import (
     AGENT_NAMES,
+    CALL_AGENTS,
     SEVERITIES,
     AgentCallRow,
     Base,
     FindingRow,
     ReviewRow,
 )
-from reviewhive.models import AgentName, Severity
+from reviewhive.models import AgentName, CallAgent, Severity
 
 
 def _literal_values(annotation) -> set[str]:
@@ -32,7 +33,17 @@ def test_check_constraints_match_the_domain_literals() -> None:
     copies of the same closed set. If they drift, the database rejects a value the
     application considers valid — at write time, mid-review."""
     assert set(AGENT_NAMES) == _literal_values(AgentName)
+    assert set(CALL_AGENTS) == _literal_values(CallAgent)
     assert set(SEVERITIES) == _literal_values(Severity)
+
+
+def test_a_classifier_can_spend_tokens_but_cannot_author_a_finding() -> None:
+    """The reason the two sets are separate. `CallAgent` is who can appear in
+    `agent_calls`; `AgentName` is who can appear in a finding's `sources`. Merging
+    them would let a mention classifier be credited as having found something."""
+    assert set(AGENT_NAMES) < set(CALL_AGENTS)
+    assert {"intent", "answer", "reconsider"} <= set(CALL_AGENTS)
+    assert {"intent", "answer", "reconsider"}.isdisjoint(_literal_values(AgentName))
 
 
 def test_every_constraint_is_named_by_the_convention() -> None:

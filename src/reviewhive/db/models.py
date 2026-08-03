@@ -35,7 +35,12 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 REVIEW_STATUSES = ("pending", "running", "succeeded", "failed")
-REVIEW_SOURCES = ("cli", "webhook")
+REVIEW_SOURCES = ("cli", "webhook", "mention")
+
+# Everything that can spend tokens against a review row, which is wider than the
+# three reviewers. Mirrors `models.CallAgent`; `AGENT_NAMES` stays the reviewers
+# alone because that set also types who can be credited as a finding's source.
+CALL_AGENTS = ("security", "style", "architecture", "intent", "answer", "reconsider")
 AGENT_NAMES = ("security", "style", "architecture")
 SEVERITIES = ("high", "medium", "low")
 
@@ -204,7 +209,7 @@ class AgentCallRow(Base):
     review: Mapped[ReviewRow] = relationship(back_populates="calls")
 
     __table_args__ = (
-        CheckConstraint(_in("agent", AGENT_NAMES), name="agent"),
+        CheckConstraint(_in("agent", CALL_AGENTS), name="agent"),
         # One call per agent per run is a real invariant of the current graph, and
         # `agent` is a closed set, so this doubles as the ordering key. It turns a
         # double-write into a loud error instead of a silently doubled cost. If

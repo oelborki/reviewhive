@@ -357,6 +357,81 @@ class TestPullRequestReviews:
         assert undelivered == 1
 
 
+class TestMentionCalls:
+    """A mention spends tokens and produces no findings. The schema has to accept
+    that, and `--autogenerate` cannot see a widened CHECK, so this is the only
+    thing standing between the models and a write-time rejection."""
+
+    async def test_a_mention_run_is_a_valid_source(self, store, engine) -> None:
+        review_id = await store.start_review(source="mention", diff_text=DIFF)
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(select(ReviewRow).where(ReviewRow.id == review_id))).one()
+
+        assert row.source == "mention"
+
+    @pytest.mark.parametrize("agent", ["intent", "answer", "reconsider"])
+    async def test_non_reviewer_calls_are_accepted(self, store, engine, agent) -> None:
+        review_id = await store.start_review(source="mention", diff_text=DIFF)
+        result = ReviewResult(findings=[], calls=[call(agent=agent)])
+
+        await store.finish_review(review_id, result, elapsed_ms=500)
+
+        async with engine.connect() as conn:
+            stored = (
+                await conn.execute(
+                    select(AgentCallRow.agent).where(AgentCallRow.review_id == review_id)
+                )
+            ).scalar_one()
+
+        assert stored == agent
+
+    async def test_an_unknown_caller_is_still_rejected(self, store, engine) -> None:
+        """Widening the set is not abandoning it."""
+        review_id = await store.start_review(source="mention", diff_text=DIFF)
+
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO agent_calls (id, review_id, agent, model) "
+                        "VALUES (gen_random_uuid(), :rid, 'summariser', 'm')"
+                    ),
+                    {"rid": review_id},
+                )
+
+    async def test_an_unknown_source_is_still_rejected(self, store, engine) -> None:
+        review_id = await store.start_review(source="mention", diff_text=DIFF)
+
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE reviews SET source = 'cron' WHERE id = :id"),
+                    {"id": review_id},
+                )
+
+    async def test_a_mention_costs_are_queryable_with_reviews(self, store, engine) -> None:
+        """The point of routing mention spend through the same table: one query
+        answers what a pull request cost, not two."""
+        review_id = await store.start_review(source="mention", diff_text=DIFF)
+        await store.finish_review(
+            review_id,
+            ReviewResult(findings=[], calls=[call(agent="intent"), call(agent="answer")]),
+            elapsed_ms=500,
+        )
+
+        async with engine.connect() as conn:
+            total = (
+                await conn.execute(
+                    select(func.sum(AgentCallRow.cost_usd)).where(
+                        AgentCallRow.review_id == review_id
+                    )
+                )
+            ).scalar_one()
+
+        assert total > 0
+
+
 class TestConstraints:
     async def test_children_go_when_the_review_goes(self, store, engine) -> None:
         review_id = await store.start_review(source="cli", diff_text=DIFF)
