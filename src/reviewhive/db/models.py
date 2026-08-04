@@ -40,7 +40,7 @@ REVIEW_SOURCES = ("cli", "webhook", "mention")
 # Everything that can spend tokens against a review row, which is wider than the
 # three reviewers. Mirrors `models.CallAgent`; `AGENT_NAMES` stays the reviewers
 # alone because that set also types who can be credited as a finding's source.
-CALL_AGENTS = ("security", "style", "architecture", "intent", "answer", "reconsider")
+CALL_AGENTS = ("security", "style", "architecture", "intent", "answer", "reconsider", "merge")
 AGENT_NAMES = ("security", "style", "architecture")
 SEVERITIES = ("high", "medium", "low")
 
