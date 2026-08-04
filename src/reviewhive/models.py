@@ -24,7 +24,9 @@ AgentName = Literal["security", "style", "architecture"]
 # of reviewers. Kept separate from `AgentName` on purpose: `AgentName` also types
 # `MergedFinding.sources`, and a classifier must never be attributable as the
 # source of a finding. Cost telemetry is a different question from authorship.
-CallAgent = Literal["security", "style", "architecture", "intent", "answer", "reconsider"]
+CallAgent = Literal[
+    "security", "style", "architecture", "intent", "answer", "reconsider", "merge"
+]
 
 
 class Finding(BaseModel):

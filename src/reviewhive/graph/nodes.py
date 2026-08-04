@@ -19,6 +19,7 @@ from reviewhive.config import Settings
 from reviewhive.diff.budget import build_budget
 from reviewhive.diff.parser import parse_diff
 from reviewhive.graph.dedupe import collapse, rank_and_cut
+from reviewhive.graph.llm_merge import merge_findings
 from reviewhive.graph.state import ReviewState
 from reviewhive.models import MergedFinding, ReviewResult
 
@@ -88,16 +89,29 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
             "dropped %d findings naming files outside the diff", len(anchored.dropped_files)
         )
 
+    # After anchoring, so no tokens are spent on findings about to be dropped for
+    # naming a file outside the diff, and so the pass compares snapped lines rather
+    # than the ones the models reported. Before ranking, so a merge frees a slot
+    # under `max_posted_findings` instead of arriving too late to matter.
+    calls = state.get("calls", [])
+    findings = anchored.findings
+    if settings.enable_llm_merge:
+        findings, merge_call = await merge_findings(deps.client, settings, findings)
+        if merge_call is not None:
+            calls = [*calls, merge_call]
+
     kept, suppressed = rank_and_cut(
-        anchored.findings,
+        findings,
         min_confidence=settings.min_confidence,
         max_posted=settings.max_posted_findings,
     )
 
     logger.info(
-        "finalized: %d raw -> %d merged -> %d posted (%d suppressed, %d snapped)",
+        "finalized: %d raw -> %d merged -> %d after merge pass -> %d posted "
+        "(%d suppressed, %d snapped)",
         len(raw),
         len(merged),
+        len(findings),
         len(kept),
         suppressed,
         anchored.snapped,
@@ -109,7 +123,7 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
             suppressed_count=suppressed,
             skipped_files=budget.skipped if budget else [],
             truncated_files=budget.truncated if budget else [],
-            calls=state.get("calls", []),
+            calls=calls,
             # Echoed onto the result so the summary can disclose it and the store
             # can record it. A narrowed review that does not say it was narrowed
             # reads as a clean bill of health for the whole diff.
