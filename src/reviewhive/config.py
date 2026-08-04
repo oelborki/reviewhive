@@ -34,15 +34,25 @@ class Settings(BaseSettings):
     min_confidence: float = 0.35
 
     # --- Dedup ---
-    # Off because there is no merge pass to enable. The deterministic collapse in
-    # `graph/dedupe.py` is the whole of deduplication today; this flag reserves the
-    # name for the second pass and must stay False until one exists, or it reads as
-    # a feature that silently does nothing.
-    enable_llm_merge: bool = False
+    # On. `graph/llm_merge.py` reads this, and the pass costs one cheap call to
+    # collapse the cross-lane duplicates the deterministic pass is documented as
+    # leaving behind. Turning it off is a supported way to save that call; the
+    # review is then exactly what it was before the pass existed.
+    enable_llm_merge: bool = True
     # Findings within this many lines of each other are candidates for the same issue.
     dedupe_line_tolerance: int = 3
     # Jaccard overlap on title tokens above which two findings collapse without an LLM call.
     dedupe_title_similarity: float = 0.5
+
+    # Wider than `dedupe_line_tolerance`, deliberately. The deterministic pass has
+    # only a title to go on, so it must stay close to be safe; the merge pass reads
+    # both bodies and can be trusted further out. The measured cross-lane pair sat
+    # one line apart, but an architecture finding anchored at a function signature
+    # and a security finding on the offending line inside it can be several.
+    merge_line_window: int = 8
+    # A cost guard, not a correctness one: pairs grow quadratically with findings
+    # on one file, and a defect-dense diff would otherwise send a very large call.
+    merge_max_pairs: int = 24
 
     # --- Agent call behaviour ---
     agent_max_tokens: int = 8_000
