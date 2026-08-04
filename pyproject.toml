@@ -71,3 +71,14 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.coverage.run]
 source = ["src/reviewhive"]
+
+[tool.coverage.report]
+# Set just under what the offline suite measures today, which is what CI runs.
+# Deliberately not the combined figure: adding `-m db` covers most of
+# `repository.py` and would push this past what a bare `pytest --cov` can reach,
+# turning the local command into a failure nobody caused.
+#
+# A floor rather than a target. It exists to make a drop visible in the diff that
+# caused it, not to be raised until the number looks impressive.
+fail_under = 93
+show_missing = true
