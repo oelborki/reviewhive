@@ -11,6 +11,7 @@ it lives at the top level rather than under `api/`.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -239,3 +240,81 @@ class TestFailures:
         store, _, review_id = await run_job(diff_text, settings, handler=handler)
 
         assert store.reviews[review_id].status in {"failed", "pending"}
+
+    async def test_an_unpostable_explanation_is_not_a_second_failure(
+        self, diff_text, settings
+    ) -> None:
+        """The diff was too large *and* the explanation could not be posted. There
+        is nothing further to try and nobody to tell; the row is already `failed`
+        and must stay that way."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/reviews"):
+                return httpx.Response(403, json={"message": "forbidden"})
+            return httpx.Response(406, json={"message": "too large"})
+
+        store, _, review_id = await run_job(diff_text, settings, handler=handler)
+
+        assert store.reviews[review_id].status == "failed"
+
+
+class TestStorageFailures:
+    """The store failing must never cost the review.
+
+    It took real money and real minutes. Losing the output in order to report a
+    database problem is the wrong way round, so each of these is logged and
+    stepped over rather than raised.
+    """
+
+    async def test_a_graph_failure_is_recorded_against_the_row(
+        self, diff_text, settings
+    ) -> None:
+        """Distinct from an agent failing — `run_agent` swallows that one. This is
+        the graph itself coming apart, which nothing below it can absorb."""
+        store = InMemoryReviewStore()
+        transport, _ = make_transport(github_handler(diff=diff_text))
+        review_id = await store.start_review(source="webhook", github=GH_REF)
+
+        deps = JobDeps(
+            settings=settings,
+            graph=SimpleNamespace(ainvoke=_raise_async),
+            github=GitHubClient(token="t", transport=transport),
+            store=store,
+        )
+        await review_pull_request(deps, REF, review_id)
+
+        assert store.reviews[review_id].status == "failed"
+        assert "graph is broken" in store.reviews[review_id].error
+
+    async def test_a_review_that_cannot_be_saved_is_still_posted(
+        self, diff_text, settings
+    ) -> None:
+        """The findings exist and the pull request is what a human reads. Losing
+        the post as well would turn one problem into two."""
+        store = InMemoryReviewStore()
+        store.finish_review = _raise_async  # type: ignore[method-assign]
+
+        _, seen, _ = await run_job(
+            diff_text, settings, handler=github_handler(diff=diff_text), store=store
+        )
+
+        assert [r for r in seen if r.url.path.endswith("/reviews")]
+
+    async def test_a_post_that_cannot_be_recorded_is_still_a_post(
+        self, diff_text, settings
+    ) -> None:
+        """The review is on the pull request either way. Only the bookkeeping is
+        lost, and raising here would make it look like the post failed."""
+        store = InMemoryReviewStore()
+        store.record_posted_review = _raise_async  # type: ignore[method-assign]
+
+        _, seen, review_id = await run_job(
+            diff_text, settings, handler=github_handler(diff=diff_text), store=store
+        )
+
+        assert [r for r in seen if r.url.path.endswith("/reviews")]
+        assert store.reviews[review_id].posted_review_id is None
+
+
+async def _raise_async(*_args, **_kwargs):
+    raise RuntimeError("graph is broken")
