@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("sqlalchemy", reason="requires the db extra")
+pytest.importorskip("sqlalchemy", exc_type=ImportError, reason="requires the db extra")
 
 from reviewhive.db.models import (
     AGENT_NAMES,

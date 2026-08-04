@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-pytest.importorskip("sqlalchemy", reason="requires the db extra")
+pytest.importorskip("sqlalchemy", exc_type=ImportError, reason="requires the db extra")
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import text
