@@ -16,7 +16,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-pytest.importorskip("fastapi", reason="requires the service extra")
+pytest.importorskip("fastapi", exc_type=ImportError, reason="requires the service extra")
 
 from fastapi.testclient import TestClient
 from tests.fakes import InMemoryReviewStore

@@ -50,7 +50,7 @@ def test_both_stores_satisfy_the_protocol(store) -> None:
 
 
 def test_the_sql_store_satisfies_the_protocol() -> None:
-    pytest.importorskip("sqlalchemy", reason="requires the db extra")
+    pytest.importorskip("sqlalchemy", exc_type=ImportError, reason="requires the db extra")
     from reviewhive.db.repository import SqlReviewStore
 
     assert isinstance(SqlReviewStore(None), ReviewStore)

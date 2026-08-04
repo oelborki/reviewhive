@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("fastapi", reason="requires the service extra")
+pytest.importorskip("fastapi", exc_type=ImportError, reason="requires the service extra")
 
 import httpx
 from fastapi.testclient import TestClient
