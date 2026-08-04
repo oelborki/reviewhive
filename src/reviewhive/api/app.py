@@ -54,8 +54,20 @@ def _require(settings: Settings) -> None:
         )
 
 
-async def _build_deps(settings: Settings) -> tuple[JobDeps, list]:
-    """Construct what the process owns, and how to close it."""
+async def _build_deps(settings: Settings) -> tuple[JobDeps, list]:  # pragma: no cover
+    """Construct what the process owns, and how to close it.
+
+    Excluded from coverage on purpose, and the exclusion is the same decision as
+    `create_app(deps=...)` itself: every test assembles the app around stubs
+    through that seam, so nothing below the `_require` call is reachable from an
+    offline suite by design. Covering it would mean constructing a real Anthropic
+    client, a real HTTP client and a real engine — the things the seam exists to
+    keep out of the tests.
+
+    What is testable is tested elsewhere: `_require` has its own cases, and
+    `test_startup.py` pins that it is still on the startup path, which is the part
+    a refactor could quietly drop.
+    """
     _require(settings)
 
     client = AsyncAnthropic(

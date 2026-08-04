@@ -149,3 +149,36 @@ class TestNullStore:
         assert review_id is not None
         await store.finish_review(review_id, result(), elapsed_ms=1)
         await store.fail_review(review_id, "boom")
+
+    async def test_every_write_is_accepted_and_discarded(self) -> None:
+        """No database is a supported configuration, not a degraded one, so every
+        method has to be callable — including the ones only the webhook and the
+        mention handler reach."""
+        store = NullReviewStore()
+        review_id = await store.start_review(source="webhook", diff_text=DIFF)
+
+        await store.mark_running(review_id, diff_text=DIFF)
+        await store.record_posted_review(review_id, posted_review_id=1, comment_count=2)
+
+        assert await store.get_review(review_id) is None
+
+    async def test_every_read_degrades_to_nothing_stored(self) -> None:
+        """Each of these answers shapes behaviour, and each is the honest one:
+        no findings means a mention can only become a review, and no duplicate
+        means a webhook re-reviews rather than pretending it already had."""
+        store = NullReviewStore()
+
+        assert await store.latest_findings(repo_full_name="o/r", pr_number=1) == []
+        assert (
+            await store.count_recent_mentions(
+                repo_full_name="o/r", pr_number=1, within_seconds=3600
+            )
+            == 0
+        )
+        assert await store.find_review_by_delivery("d-1") is None
+        assert (
+            await store.find_latest_review_for_head(
+                repo_full_name="o/r", pr_number=1, head_sha="a" * 40
+            )
+            is None
+        )
