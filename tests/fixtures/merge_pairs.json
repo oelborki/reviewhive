@@ -1,0 +1,307 @@
+{
+  "note": "Ten pairs recorded by real reviews. Nine reach the model -- five that must merge and four that must not; the tenth is excluded by candidate selection because both findings share a reviewer, which is the same agent reporting twice. Taken from the findings table on 2026-08-04, not written by hand: a fixture invented to suit the prompt measures the prompt against itself. The negative half is the important half -- a wrong merge discards a real finding, and reports.py:40/44 on the demo pull request showed that two findings with identical titles can be two different vulnerabilities.",
+  "cases": [
+    {
+      "id": "demo_pr/main.py:44",
+      "should_merge": true,
+      "reaches_model": true,
+      "why": "One missing check on the done endpoint; architecture called it a structural gap and security called it a vulnerability.",
+      "left": {
+        "file": "app/main.py",
+        "line": 44,
+        "severity": "high",
+        "category": "missing-auth-check",
+        "title": "done endpoint lacks authentication entirely",
+        "body": "The POST /tasks/{owner}/{id}/done endpoint has no authentication or authorization check. Any unauthenticated request can mark any task as done. Add token validation and verify the requesting user owns the task being updated.",
+        "confidence": 0.95,
+        "sources": [
+          "architecture"
+        ]
+      },
+      "right": {
+        "file": "app/main.py",
+        "line": 44,
+        "severity": "high",
+        "category": "missing-authorization",
+        "title": "done endpoint does not verify ownership of task",
+        "body": "The /tasks/{owner}/{id}/done endpoint accepts an owner parameter but never verifies the caller owns that task or even that they provided a valid token. An attacker can modify any task belonging to any owner. Verify the token and check that the authenticated user owns the task before allowing updates.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "demo_pr/main.py:36",
+      "should_merge": true,
+      "reaches_model": true,
+      "why": "Same shape as the pair above, on the search endpoint.",
+      "left": {
+        "file": "app/main.py",
+        "line": 36,
+        "severity": "high",
+        "category": "missing-auth-check",
+        "title": "search endpoint lacks authentication",
+        "body": "The /search/{owner} endpoint calls auth.require(token) but does not verify that the authenticated user owns the requested data. An attacker can search another user's tasks by providing a valid admin token. Add logic to check that the authenticated user matches the owner parameter.",
+        "confidence": 0.85,
+        "sources": [
+          "architecture"
+        ]
+      },
+      "right": {
+        "file": "app/main.py",
+        "line": 36,
+        "severity": "medium",
+        "category": "missing-authorization",
+        "title": "search endpoint does not verify ownership of queried owner",
+        "body": "The search endpoint verifies a token exists but never checks that the caller is authorized to search tasks for that specific owner. A valid token for one user can query another user's tasks. Verify the token belongs to the requested owner.",
+        "confidence": 0.92,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "mixed_rich/reports.py:35",
+      "should_merge": true,
+      "reaches_model": true,
+      "why": "The same hardcoded string literal, named as an exposure and as a live key.",
+      "left": {
+        "file": "src/app/reports.py",
+        "line": 35,
+        "severity": "high",
+        "category": "hardcoded-credential",
+        "title": "API credential exposed in source code",
+        "body": "A service token is hard-coded as a module-level constant, making it visible to anyone with access to the repository and impossible to rotate without a code change. Move this to an environment variable or configuration system that the security team manages. Load it at runtime: SERVICE_TOKEN = os.environ.get('SERVICE_TOKEN').",
+        "confidence": 0.95,
+        "sources": [
+          "architecture"
+        ]
+      },
+      "right": {
+        "file": "src/app/reports.py",
+        "line": 35,
+        "severity": "high",
+        "category": "hardcoded-secret",
+        "title": "Live API key hardcoded in source code",
+        "body": "The string \"sk-live-3c9a1f7d2e8b4a6c\" is a live API key and must never be committed to version control. Remove it immediately and store it in an environment variable or secrets manager. Anyone with access to this repository can now use this token.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "mixed/auth.py:13",
+      "should_merge": true,
+      "reaches_model": true,
+      "why": "One concatenated query. Architecture and style already collapsed together; security stayed separate because the titles share almost nothing.",
+      "left": {
+        "file": "src/app/auth.py",
+        "line": 13,
+        "severity": "high",
+        "category": "sql-injection",
+        "title": "SQL injection vulnerability in string concatenation",
+        "body": "This change replaces a parameterized query with string concatenation, exposing the code to SQL injection attacks. An attacker can craft a username like `' OR '1'='1` to bypass authentication. Revert to the parameterized query: `cur.execute(\"SELECT * FROM users WHERE name = %s\", (username,))`.",
+        "confidence": 0.99,
+        "sources": [
+          "architecture",
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/auth.py",
+        "line": 13,
+        "severity": "high",
+        "category": "sql-injection",
+        "title": "SQL injection via string concatenation",
+        "body": "The query is built by concatenating a user-supplied variable directly into the SQL string instead of using parameterised queries. An attacker can inject arbitrary SQL by crafting a malicious username. Use the parameterised query form that was replaced: `cur.execute(\"SELECT * FROM users WHERE name = %s\", (username,))`",
+        "confidence": 0.99,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "style_only/reports.py:12 (naming)",
+      "should_merge": true,
+      "reaches_model": true,
+      "why": "Both describe the parameter names of proc(). Renaming them resolves each.",
+      "left": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "naming",
+        "title": "Parameter names do not clearly express intent",
+        "body": "The parameters `d`, `flag`, and `other_flag` are too generic and opaque. `d` does not indicate whether it is a dictionary, list, or other structure. `flag` and `other_flag` do not describe what behavior they control. Use descriptive names like `data_dict`, `include_null_filter`, or `filter_by_status` instead.",
+        "confidence": 0.95,
+        "sources": [
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "unclear-abstraction",
+        "title": "proc() function parameters lack semantic meaning",
+        "body": "The parameters `flag` and `other_flag` are generic placeholders that obscure what conditions they actually control. This makes the function's contract unclear and hard to use correctly. Rename them to describe their actual purpose (e.g., `filter_enabled`, `status_check_enabled`) so callers understand what they control.",
+        "confidence": 0.85,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "multi_file/parser.py:252",
+      "should_merge": false,
+      "reaches_model": true,
+      "why": "An off-by-one in the gutter and an unexplained constant. Neither fix accomplishes the other.",
+      "left": {
+        "file": "src/reviewhive/diff/parser.py",
+        "line": 252,
+        "severity": "high",
+        "category": "off-by-one-error",
+        "title": "Gutter numbering may be off by one or misaligned",
+        "body": "The gutter formatting uses `f\"{line.target_line_no:>5} \"` which right-aligns the number in 5 characters, then adds a space, creating a 6-character gutter. However, the test at line 33 in test_parser.py checks `raw[:5].strip()` to extract the number â€” reading only the first 5 characters. This means the last digit or the space may be cut off, causing misalignment between what is rendered and what the test extracts. Verify that the gutter width and extraction logic match: either use `raw[:6].strip()` in the test or adjust the formatting string.",
+        "confidence": 0.85,
+        "sources": [
+          "security"
+        ]
+      },
+      "right": {
+        "file": "src/reviewhive/diff/parser.py",
+        "line": 252,
+        "severity": "low",
+        "category": "magic-number",
+        "title": "Magic spacing constant lacks explanation",
+        "body": "The `\" \" * 6` creates a 6-character blank gutter for removed lines, matching the width of the line number field above it. This alignment detail should be named as a constant or documented to clarify why 6 is correct. Without it, readers must reverse-engineer the field width from line 252 and elsewhere.",
+        "confidence": 0.6,
+        "sources": [
+          "style"
+        ]
+      }
+    },
+    {
+      "id": "mixed_rich/reports.py:12",
+      "should_merge": false,
+      "reaches_model": true,
+      "why": "Vague parameter names and a function doing two jobs. Same line, two edits.",
+      "left": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "naming",
+        "title": "Parameter names 'd', 'flag', 'other_flag' are too vague",
+        "body": "Single-letter and generic boolean names obscure what the function expects. 'd' could be a dict, list, or other type; 'flag' and 'other_flag' don't convey their purpose. Rename to descriptive names like 'records', 'filter_by_status', 'require_active'.",
+        "confidence": 0.95,
+        "sources": [
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "multi-purpose-function",
+        "title": "proc() mixes data filtering with aggregation",
+        "body": "The function both filters a dictionary of records and counts matches in a single pass. If the counting logic or filtering criteria change, both concerns must be edited together, making the code harder to maintain and test. Split filtering from aggregation: have proc() filter and return only matching records, then let the caller count them or extract the count separately.",
+        "confidence": 0.85,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "style_only/reports.py:12 (naming vs shape)",
+      "should_merge": false,
+      "reaches_model": true,
+      "why": "The hard one. Same line as the merging pair above, and this time the second finding is about what the function does, not what its parameters are called.",
+      "left": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "naming",
+        "title": "Parameter names do not clearly express intent",
+        "body": "The parameters `d`, `flag`, and `other_flag` are too generic and opaque. `d` does not indicate whether it is a dictionary, list, or other structure. `flag` and `other_flag` do not describe what behavior they control. Use descriptive names like `data_dict`, `include_null_filter`, or `filter_by_status` instead.",
+        "confidence": 0.95,
+        "sources": [
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/reports.py",
+        "line": 12,
+        "severity": "medium",
+        "category": "single-responsibility",
+        "title": "proc() does filtering and aggregation together",
+        "body": "This function mixes two concerns: filtering dictionary entries by complex conditions and computing a count. These should be separate â€” filter the data first, then compute metrics. This would make it testable independently and reusable if only one concern is needed later.",
+        "confidence": 0.8,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "style_only/reports.py:28",
+      "should_merge": false,
+      "reaches_model": true,
+      "why": "A vague name and hardcoded call arguments.",
+      "left": {
+        "file": "src/app/reports.py",
+        "line": 28,
+        "severity": "medium",
+        "category": "naming",
+        "title": "Parameter name `r` is not descriptive",
+        "body": "The variable `r` in `get_report()` is too short and unclear. Use a name like `proc_result` or `filter_result` to make it obvious what the returned data structure represents.",
+        "confidence": 0.95,
+        "sources": [
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/reports.py",
+        "line": 28,
+        "severity": "low",
+        "category": "tight-coupling",
+        "title": "get_report() hardcodes proc() call arguments",
+        "body": "The call to `proc(rows, True, False)` bakes specific filter flags into get_report(). If the filtering logic needs to change, both functions must be modified together. Consider accepting these flags as parameters to get_report() so callers can control the filtering behavior.",
+        "confidence": 0.75,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "mixed/auth.py:17",
+      "should_merge": false,
+      "reaches_model": false,
+      "why": "A plaintext password comparison and a function mixing validation with business logic.",
+      "left": {
+        "file": "src/app/auth.py",
+        "line": 17,
+        "severity": "high",
+        "category": "plaintext-password-comparison",
+        "title": "Password compared as plaintext",
+        "body": "Passwords must never be stored or compared as plaintext. This function assumes passwords are stored unencrypted and compares them directly, which is a severe security risk. Use a proper password hashing library like bcrypt to hash and verify passwords: `return bcrypt.checkpw(password.encode(), user[\"password_hash\"])`.",
+        "confidence": 0.95,
+        "sources": [
+          "architecture",
+          "style"
+        ]
+      },
+      "right": {
+        "file": "src/app/auth.py",
+        "line": 17,
+        "severity": "medium",
+        "category": "single-responsibility",
+        "title": "check_password mixes validation with business logic",
+        "body": "The function appears to be a pure comparison, but embedding password checking logic here couples authentication concerns to a utility function. This makes it harder to change password validation strategy (e.g., to add rate limiting, logging, or algorithm changes) without modifying this function. Extract to a dedicated authentication service or move to an auth module's public interface.",
+        "confidence": 0.6,
+        "sources": [
+          "architecture"
+        ]
+      }
+    }
+  ]
+}
