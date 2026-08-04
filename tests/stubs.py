@@ -46,6 +46,13 @@ class StubAnthropic:
     tokens_per_call: int = 100
     errors: dict[str, Exception] = field(default_factory=dict)
     refusals: set[str] = field(default_factory=set)
+    # A response the SDK could not validate against the schema. Distinct from a
+    # refusal: the model answered, and what came back is unusable.
+    unparsed: set[str] = field(default_factory=set)
+    # Any other stop reason, keyed the same way. `max_tokens` is the one that
+    # matters — structured output truncated at the cap still parses, so the caller
+    # sees a short list rather than an error unless it checks this.
+    stop_reasons: dict[str, str] = field(default_factory=dict)
 
     parse_calls: list[str] = field(default_factory=list)
     # The user turn each agent was sent. Recorded because the system prompt is
@@ -80,8 +87,8 @@ class StubAnthropic:
 
             findings = self.responses.get(agent, [])
             return SimpleNamespace(
-                parsed_output=AgentFindings(findings=findings),
-                stop_reason="refusal" if agent in self.refusals else "end_turn",
+                parsed_output=None if agent in self.unparsed else AgentFindings(findings=findings),
+                stop_reason=self._stop_reason(agent),
                 usage=SimpleNamespace(
                     input_tokens=self.tokens_per_call,
                     output_tokens=len(findings) * 50,
@@ -106,13 +113,20 @@ class StubAnthropic:
 
         return SimpleNamespace(
             parsed_output=self.outputs.get(schema),
-            stop_reason="refusal" if schema in self.refusals else "end_turn",
+            stop_reason=self._stop_reason(schema),
             usage=SimpleNamespace(
                 input_tokens=self.tokens_per_call,
                 output_tokens=40,
                 cache_read_input_tokens=0,
             ),
         )
+
+    def _stop_reason(self, key: str) -> str:
+        """A refusal outranks an explicit stop reason: it is the API's own verdict
+        on the request, not something a caller chose to simulate."""
+        if key in self.refusals:
+            return "refusal"
+        return self.stop_reasons.get(key, "end_turn")
 
     async def _count_tokens(self, *, messages, **_kwargs):
         text = messages[0]["content"]
