@@ -13,6 +13,21 @@ set -e
 # `alembic upgrade head` is a real problem, and the answer to it is a release
 # phase and a worker queue — both documented as the scaling path and both
 # deliberately not built.
+# Managed Postgres providers hand out a driver-less `postgresql://` URL — Render's
+# `fromDatabase` connection string is one — and `Settings` rejects anything but
+# `postgresql+asyncpg://`. That strictness is deliberate and worth keeping: a sync
+# URL otherwise fails much later, deep inside SQLAlchemy, with a greenlet error
+# that reads as a bug in this project. Normalising here puts the platform quirk at
+# the platform boundary instead of loosening the application. An explicitly wrong
+# driver, `postgresql+psycopg2://`, is still rejected as it should be.
+case "${REVIEWHIVE_DATABASE_URL}" in
+    postgresql://*)
+        REVIEWHIVE_DATABASE_URL="postgresql+asyncpg://${REVIEWHIVE_DATABASE_URL#postgresql://}"
+        export REVIEWHIVE_DATABASE_URL
+        echo "entrypoint: rewrote a driver-less database URL to use asyncpg"
+        ;;
+esac
+
 if [ -n "${REVIEWHIVE_DATABASE_URL}" ]; then
     echo "entrypoint: applying migrations"
     alembic upgrade head
