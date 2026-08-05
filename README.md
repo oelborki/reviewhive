@@ -4,10 +4,12 @@ A multi-agent AI code reviewer for GitHub pull requests. Three specialized agent
 examine the diff **in parallel**, their findings are deduplicated and ranked, and
 the result is posted as a single review.
 
-> **Status: Phase 3 of 5.** Open a pull request on a configured repository and a
+> **Status: Phase 4 of 5.** Open a pull request on a configured repository and a
 > review with inline comments appears; mention the bot in a comment and it answers.
-> Runs are persisted to Postgres. Remaining: full CI, the LLM merge pass, and a
-> containerised deployment — see [Roadmap](#roadmap).
+> Runs are persisted to Postgres, an LLM merge pass collapses the cross-lane
+> duplicates title matching cannot see, and `docker compose up` runs the whole
+> thing. Remaining: a temporary public deployment and a demo recording — see
+> [Roadmap](#roadmap).
 
 ## How it works
 
@@ -48,13 +50,24 @@ lines of each other, whose titles overlap above a threshold, collapse into one
 finding that records which agents raised it. Only the residue that co-locates but
 does not textually match is left alone for now.
 
-An LLM merge pass is the intended second step, deferred to Phase 4 rather than
-built alongside the rest of persistence. It is the one piece of this with no
-objective success criterion — the point at which "is this the same finding?"
-becomes a judgement call — and the honest way to build it is against duplicates
-that actually survived, which the `findings` table now records. Building it first
-would have meant tuning a threshold against a guess.
-`settings.enable_llm_merge` reserves the name and defaults to off.
+**An LLM merge pass then takes the residue**, and it was deliberately built last.
+It is the one piece here with no objective success criterion — the point at which
+"is this the same finding?" becomes a judgement call — so it was built against
+duplicates that had actually survived into the `findings` table rather than
+against a guess. That evaluation set is ten cross-lane pairs at identical line
+numbers, split roughly evenly between pairs that must merge and pairs that must
+not; a set of positives alone would have tuned the pass toward merging
+everything.
+
+It scores 4/5 on must-merge and 4/4 on must-not-merge, identically across runs.
+Zero false merges, and the one miss is in the safe direction — the prompt is
+built to prefer leaving two findings apart over collapsing two real defects into
+one. Findings from the *same* agent are never paired: it had the whole diff in
+front of it when it decided they were two things.
+
+The pass costs about $0.012 on a defect-dense diff, roughly 40% on top of a
+review, so `REVIEWHIVE_ENABLE_LLM_MERGE=false` is a supported way to run cheaper
+rather than a vestige.
 
 The first live review supplied both halves of that judgement call. A real
 duplicate survived: the same missing auth check filed one line apart by two
@@ -122,12 +135,17 @@ Probe against a diff carrying real material for the agent under test.
 so the pair separates an agent straying because security is eye-catching from one
 straying because its own lane is empty.
 
-Cost on `claude-haiku-4-5`, measured: **$0.013** for a small single-file diff,
-**$0.023** for a real six-file pull request (~6,400 input tokens per agent), and
-**$0.028 in 10.6 s** for the first end-to-end webhook review — a four-file diff
-that produced 25 findings, of which 15 were posted. It scales with diff size, so
-treat the smallest figure as a floor rather than a typical PR. Both scripts print
-the exact figure and per-agent latency for every run.
+Cost on `claude-haiku-4-5`: **$0.013 – $0.032 per review**, every figure measured
+rather than estimated, across every review this project has actually recorded. The
+first end-to-end webhook review was **$0.028 in 10.6 s** — a four-file diff that
+produced 25 findings, of which 15 were posted.
+
+It is quoted as a range on purpose. Cost scales with diff size but not only with
+it: the four-file `demo_pr` fixture came in *above* the six-file `multi_file` one,
+because output tokens vary with how much the agents find rather than with how much
+they read. The same diff run twice consumed identical input tokens and differed by
+15% on output alone. Both scripts print the exact figure and per-agent latency for
+every run.
 
 ## Reviewing real pull requests
 
@@ -283,6 +301,34 @@ because the `.diff` media type is repository content. Without the last one,
 posting reviews and listing files both return `200` and only the diff fetch
 `403`s — which reads as a bug in the fetch rather than a missing scope.
 
+## Running it in a container
+
+```bash
+cp .env.example .env        # then fill in the three GitHub values and the API key
+docker compose up --build   # service on :8000, Postgres beside it
+```
+
+That is the whole setup. The container applies its own migrations before uvicorn
+starts, so there is no separate schema step to forget — and forgetting it is not
+loud: a schema behind the code raises inside the background task, which means the
+review completes, prints, and is never stored.
+
+The image is multi-stage, so the compiler and pip's build machinery stay in the
+build stage and only a virtualenv crosses into the runtime image. It installs the
+`service` extra rather than `dev`, runs as an unprivileged user, and health-checks
+itself with `urllib` rather than carrying `curl` for the purpose. `.dockerignore`
+excludes `.env` explicitly: it is gitignored, which says nothing about a Docker
+build context, and a credential baked into a layer survives being deleted by a
+later step.
+
+Migrations run in the entrypoint rather than a release phase, which is correct for
+one replica and wrong for several — concurrent `alembic upgrade head` is a race.
+A worker queue and a release phase are the documented scaling path and are
+deliberately not built.
+
+To run the database alone — for the CLI, or for `pytest -m db` — `docker compose
+up -d db` still works in a clone with no `.env` at all.
+
 ## Persistence
 
 Optional. With no `REVIEWHIVE_DATABASE_URL` set, the CLI behaves exactly as above
@@ -366,8 +412,8 @@ database not named `reviewhive_test`.
 | 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
 | 3 | Webhook endpoint, signature verification, inline review comments | **Done** |
 | 3b | Conversational `@reviewhive` mentions | **Done** |
-| 4 | Full test coverage, CI, LLM merge pass | Next |
-| 5 | Docker, temporary deploy, demo | |
+| 4 | Full test coverage, CI, LLM merge pass | **Done** |
+| 5 | Docker, temporary deploy, demo | Container **done**; deploy and recording next |
 
 ## Deliberately out of scope
 
