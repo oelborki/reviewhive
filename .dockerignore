@@ -1,0 +1,46 @@
+# Everything the build does not need, and two things it must never receive.
+#
+# `.env` holds a live Anthropic key, a GitHub PAT and the webhook secret. It is
+# gitignored, which says nothing about the Docker build context — the build reads
+# the working directory, not the index. Excluding it here is what keeps a
+# credential out of a layer, and layers are readable by anyone who pulls the
+# image even if a later step deletes the file.
+.env
+.env.*
+!.env.example
+
+# Untracked internal notes. Same reasoning: gitignore does not filter a build
+# context, and this file has already been pushed once by accident.
+CLAUDE.md
+
+.git/
+.github/
+.gitattributes
+.gitignore
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tests/
+
+# Development-only surfaces. The scripts are the prompt-iteration loop and the
+# replay tool; none of them run inside the container.
+scripts/
+docs/
+*.md
+!README.md
+
+.idea/
+.vscode/
+Dockerfile
+.dockerignore
+docker-compose.yml
