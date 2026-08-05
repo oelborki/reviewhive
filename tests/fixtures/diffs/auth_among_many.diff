@@ -1,0 +1,161 @@
+diff --git a/app/export.py b/app/export.py
+new file mode 100644
+index 0000000..e39016f
+--- /dev/null
++++ b/app/export.py
+@@ -0,0 +1,41 @@
++"""CSV export and emailed reports."""
++
++from __future__ import annotations
++
++import csv
++import smtplib
++from email.message import EmailMessage
++
++from app import db
++
++SMTP_HOST = "smtp.example.com"
++SMTP_USER = "reports@example.com"
++SMTP_PASS = "hunter2"
++
++EXPORT_DIR = "/var/exports/"
++
++
++def export_and_email(owner, to_address, filename):
++    rows = db.list_tasks(owner)
++
++    path = EXPORT_DIR + filename
++    with open(path, "w", newline="") as f:
++        w = csv.writer(f)
++        w.writerow(["id", "title", "owner", "done"])
++        for r in rows:
++            w.writerow([r["id"], r["title"], r["owner"], r["done"]])
++
++    msg = EmailMessage()
++    msg["Subject"] = "Your task export"
++    msg["From"] = SMTP_USER
++    msg["To"] = to_address
++    msg.set_content("Attached: %d tasks" % len(rows))
++    with open(path, "rb") as f:
++        msg.add_attachment(f.read(), maintype="text", subtype="csv", filename=filename)
++
++    s = smtplib.SMTP(SMTP_HOST, 25)
++    s.login(SMTP_USER, SMTP_PASS)
++    s.send_message(msg)
++    s.quit()
++
++    return path
+diff --git a/app/main.py b/app/main.py
+index 4a2f3f2..a441b71 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -4,7 +4,7 @@
+ 
+ from fastapi import FastAPI
+ 
+-from app import db
++from app import db, export, tags
+ from app.models import TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+@@ -13,6 +13,7 @@
+ @app.on_event("startup")
+ def startup() -> None:
+     db.init_schema()
++    tags.init_tags()
+ 
+ 
+ @app.get("/health")
+@@ -30,3 +31,34 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++@app.post("/tasks/{owner}/{task_id}/tags")
++def add_task_tag(owner: str, task_id: int, name: str) -> dict[str, str]:
++    tags.add_tag(task_id, name)
++    return {"status": "ok"}
++
++
++@app.get("/tags/{name}", response_model=list[TaskOut])
++def tasks_by_tag(name: str) -> list[TaskOut]:
++    return [TaskOut(**dict(row)) for row in tags.find_by_tag(name)]
++
++
++@app.get("/tags")
++def popular_tags():
++    return [dict(r) for r in tags.popular(20)]
++
++
++@app.delete("/tasks/{owner}/{task_id}")
++def delete_task(owner: str, task_id: int) -> dict[str, str]:
++    with db.connect() as conn:
++        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
++    return {"status": "deleted"}
++
++
++@app.post("/admin/export")
++def admin_export(owner: str, to: str, filename: str, token: str = "") -> dict[str, str]:
++    if token == tags.ADMIN_TOKEN:
++        p = export.export_and_email(owner, to, filename)
++        return {"path": p}
++    return {"error": "nope"}
+diff --git a/app/tags.py b/app/tags.py
+new file mode 100644
+index 0000000..c3a8987
+--- /dev/null
++++ b/app/tags.py
+@@ -0,0 +1,52 @@
++"""Tagging for tasks."""
++
++from __future__ import annotations
++
++import sqlite3
++
++DB = "tasks.db"
++
++# Shared secret for the admin endpoints. TODO: move to env before launch.
++ADMIN_TOKEN = "s3cr3t-admin-token-2026"
++
++
++def _conn():
++    c = sqlite3.connect(DB)
++    c.row_factory = sqlite3.Row
++    return c
++
++
++def init_tags():
++    c = _conn()
++    c.execute(
++        "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, task_id INTEGER, name TEXT)"
++    )
++    c.commit()
++    c.close()
++
++
++def add_tag(task_id, name):
++    c = _conn()
++    c.execute(f"INSERT INTO tags (task_id, name) VALUES ({task_id}, '{name}')")
++    c.commit()
++    c.close()
++
++
++def find_by_tag(name):
++    c = _conn()
++    q = (
++        "SELECT t.id, t.title, t.owner, t.done FROM tasks t "
++        "JOIN tags g ON g.task_id = t.id WHERE g.name = '" + name + "'"
++    )
++    r = c.execute(q).fetchall()
++    c.close()
++    return r
++
++
++def popular(n):
++    c = _conn()
++    r = c.execute(
++        "SELECT name, COUNT(*) AS uses FROM tags GROUP BY name ORDER BY uses DESC LIMIT " + str(n)
++    ).fetchall()
++    c.close()
++    return r

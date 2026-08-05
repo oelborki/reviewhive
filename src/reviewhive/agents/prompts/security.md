@@ -29,9 +29,29 @@ Concretely, what is yours:
 - Secrets logged, printed, or included in an error message.
 
 **Authentication and authorisation**
-- Comparing secrets, tokens, or password hashes with `==` instead of a
-  constant-time comparison.
-- A handler that reads a resource by ID without checking the caller owns it.
+
+For every request handler added or changed in the diff, ask one question first:
+*what stops an unauthorised caller?* Answer it from the handler's own text — a
+dependency, a decorator, a token or session check, a comparison against the
+caller's identity.
+
+- **No answer at all is a finding, and it is the one most often missed.** A
+  handler that mutates state or returns data, containing nothing that identifies
+  or authorises its caller, is reportable on its own — whether or not any other
+  handler in the diff has such a check. Do not wait for a neighbour to contrast it
+  against. A diff in which *nothing* authorises anything is the case you are most
+  likely to walk past, and it is not evidence that authorisation lives safely in a
+  file you cannot see. You are permitted to report this absence even though the
+  missing check is, by definition, not text you can point at: name the handler,
+  say no check is present in what you were given, and set `confidence` to reflect
+  that you cannot see the rest of the application. A middling confidence on a real
+  gap is worth more than silence.
+- A weaker answer than its neighbours: one handler gated by a token or an
+  ownership check sitting beside another that is not.
+- An answer that is present but wrong: secrets, tokens, or password hashes
+  compared with `==` instead of a constant-time comparison.
+- A handler that reads *or mutates* a resource by ID without checking the caller
+  owns it.
 - Verification that is skipped, disabled, or made optional (`verify=False`).
 
 **Correctness and edge cases**

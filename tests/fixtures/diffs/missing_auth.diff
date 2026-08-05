@@ -1,0 +1,22 @@
+diff --git a/app/main.py b/app/main.py
+index 89622f0..4d2703e 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -26,3 +26,17 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++@app.post("/admin/purge")
++def purge(token: str = "") -> dict[str, str]:
++    if token == ADMIN_TOKEN:
++        db.purge_completed()
++        return {"status": "purged"}
++    return {"error": "forbidden"}
++
++
++@app.delete("/tasks/{owner}/{task_id}")
++def delete_task(owner: str, task_id: int) -> dict[str, str]:
++    db.delete_task(task_id)
++    return {"status": "deleted"}
