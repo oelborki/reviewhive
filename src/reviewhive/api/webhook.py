@@ -41,6 +41,24 @@ COMMENT_EVENTS = frozenset({"issue_comment", "pull_request_review_comment"})
 _IGNORED = JSONResponse({"status": "ignored"}, status_code=200)
 
 
+def _ignored(reason: str, *args: object, level: int = logging.INFO) -> JSONResponse:
+    """A 200 that did nothing, plus the reason it did nothing.
+
+    The response body is identical for every exit on purpose: which check
+    stopped a delivery is a fact about our configuration, and a caller learns
+    nothing from it. The reason belongs in the log — and it has to be attached
+    at *every* exit rather than at the interesting ones. Eight of these returns
+    used to be silent, which made them indistinguishable from the ones that
+    explained themselves, and "the webhook answered 200 and did nothing" was
+    already the most common thing anyone had to debug.
+
+    Taking the reason as a required argument is the point of the helper. A new
+    early return cannot be added without saying why.
+    """
+    logger.log(level, "ignored: " + reason, *args)
+    return _IGNORED
+
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -92,7 +110,7 @@ async def _handle_comment(
 
     # Edits and deletions are not requests.
     if payload.get("action") != "created":
-        return _IGNORED
+        return _ignored("comment action is %r, not 'created'", payload.get("action"))
 
     comment = payload.get("comment") or {}
     sender = (comment.get("user") or payload.get("sender") or {})
@@ -101,37 +119,47 @@ async def _handle_comment(
     if deps.self_login and login.lower() == deps.self_login.lower():
         # The loop guard, and the only one that works. Everything below would
         # happily let the bot answer itself.
-        logger.debug("ignoring our own comment")
-        return _IGNORED
+        # Debug, not info: one posted review fires fifteen of these.
+        return _ignored("the comment is our own", level=logging.DEBUG)
 
     if sender.get("type") == "Bot" or login.endswith("[bot]"):
-        return _IGNORED
+        return _ignored("sender %r is a bot", login)
 
     if comment.get("author_association") not in TRUSTED_ASSOCIATIONS:
         # Silently. Explaining the refusal to a stranger tells them the bot is
         # here and costs a comment doing it.
-        logger.info("ignoring a mention from %s (%s)", login, comment.get("author_association"))
-        return _IGNORED
+        return _ignored(
+            "%r is %s, which is not a trusted association",
+            login,
+            comment.get("author_association"),
+        )
 
     text = comment.get("body") or ""
     if settings.mention_handle.lower() not in text.lower():
-        return _IGNORED
+        # Debug for the same reason as the self-comment guard: this is every
+        # ordinary comment in the repository, and at info it would drown the rest.
+        return _ignored("no %s in the comment", settings.mention_handle, level=logging.DEBUG)
 
     # `issue_comment` fires for issues as well as pull requests.
     issue = payload.get("issue") or {}
     if event == "issue_comment" and not issue.get("pull_request"):
-        return _IGNORED
+        return _ignored("the comment is on an issue, not a pull request")
 
     pr_number = issue.get("number") or (payload.get("pull_request") or {}).get("number")
     if pr_number is None:
-        return _IGNORED
+        return _ignored("no pull request number in the payload")
 
     recent = await deps.store.count_recent_mentions(
         repo_full_name=repo, pr_number=pr_number, within_seconds=3600
     )
     if recent >= settings.max_mention_responses_per_hour:
-        logger.warning("mention rate limit reached on %s#%s", repo, pr_number)
-        return _IGNORED
+        return _ignored(
+            "mention rate limit of %d/hour reached on %s#%s",
+            settings.max_mention_responses_per_hour,
+            repo,
+            pr_number,
+            level=logging.WARNING,
+        )
 
     head_sha = (payload.get("pull_request") or {}).get("head", {}).get("sha", "")
     ref = PullRequestRef(repo_full_name=repo, pr_number=pr_number, head_sha=head_sha)
@@ -149,8 +177,7 @@ async def _handle_comment(
     except DuplicateDelivery:
         # Comment deliveries are redelivered on timeout exactly like pull request
         # ones, and answering the same comment twice is both confusing and paid for.
-        logger.info("comment delivery already recorded")
-        return _IGNORED
+        return _ignored("this comment delivery is already recorded")
 
     background_tasks.add_task(
         respond_to_mention,
@@ -192,7 +219,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     if event in COMMENT_EVENTS:
         return await _handle_comment(request, background_tasks, deps, body, event)
     if event != "pull_request":
-        return _IGNORED
+        return _ignored("event %r is not one this service reviews", event)
 
     # 3. Only now is it safe to look inside.
     try:
@@ -208,13 +235,15 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     action = payload.get("action", "")
     triggers = TRIGGER_ACTIONS | ({"synchronize"} if settings.review_on_synchronize else set())
     if action not in triggers:
-        return _IGNORED
+        # `synchronize` lands here unless review_on_synchronize is on, and that is
+        # the one people expect to trigger and are surprised by.
+        return _ignored("action %r is not a trigger; triggers are %s", action, sorted(triggers))
 
     pull_request = payload.get("pull_request") or {}
     if pull_request.get("draft"):
         # A draft is explicitly not ready to be read. It becomes reviewable via
         # ready_for_review, which is in the trigger set.
-        return _IGNORED
+        return _ignored("%s#%s is a draft", repo, payload.get("number"))
 
     ref = PullRequestRef(
         repo_full_name=repo,
@@ -227,8 +256,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     #    start_review is the guarantee, because two concurrent redeliveries both
     #    pass these checks.
     if delivery_id and await deps.store.find_review_by_delivery(delivery_id):
-        logger.info("delivery %s already recorded", delivery_id)
-        return _IGNORED
+        return _ignored("delivery %s is already recorded", delivery_id)
 
     already = await deps.store.find_latest_review_for_head(
         repo_full_name=ref.repo_full_name, pr_number=ref.pr_number, head_sha=ref.head_sha
@@ -236,8 +264,13 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     if already is not None and already.status != "failed":
         # A draft marked ready right after being opened is the real case. Only a
         # failed review is worth repeating.
-        logger.info("%s#%s at %s already reviewed", repo, ref.pr_number, ref.head_sha[:7])
-        return _IGNORED
+        return _ignored(
+            "%s#%s at %s is already reviewed (%s)",
+            repo,
+            ref.pr_number,
+            ref.head_sha[:7],
+            already.status,
+        )
 
     # 5. Persist before dispatching, both inside the request. The write is one
     #    local round trip, well inside GitHub's delivery timeout, and it is what
@@ -255,7 +288,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     except DuplicateDelivery:
         # Lost the race against a concurrent redelivery. The other one is doing
         # the work.
-        return _IGNORED
+        return _ignored("lost the race with a concurrent redelivery of %s", delivery_id)
 
     # Background tasks run after the response is sent, so this costs nothing now.
     background_tasks.add_task(review_pull_request, deps, ref, review_id)
