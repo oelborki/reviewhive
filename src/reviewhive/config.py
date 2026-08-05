@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from typing import Annotated
 
@@ -91,6 +92,12 @@ class Settings(BaseSettings):
     # repeatedly on one pull request.
     max_mention_responses_per_hour: int = 10
 
+    # --- Logging ---
+    # Applies to the `reviewhive` loggers only. Third-party libraries stay at
+    # WARNING whatever this says, so DEBUG here does not turn on an httpx line
+    # per request. See `logging_setup.configure_logging`.
+    log_level: str = "INFO"
+
     # --- Persistence ---
     # Unset means "do not persist". The CLI is the prompt-iteration loop and has to
     # keep working with no database running, so this is optional rather than
@@ -115,6 +122,21 @@ class Settings(BaseSettings):
             if repo.count("/") != 1 or " " in repo or repo.startswith("/") or repo.endswith("/"):
                 raise ValueError(f"allowed_repos entries must be owner/repo, got {repo!r}")
         return repos
+
+    @field_validator("log_level")
+    @classmethod
+    def _known_level(cls, value: str) -> str:
+        # Checked at load for the same reason `allowed_repos` is: `setLevel`
+        # raises on an unknown name, and the only call site is inside lifespan,
+        # so a typo would otherwise surface as a service that will not boot with
+        # a traceback pointing at the logging module rather than at the config.
+        level = value.strip().upper()
+        if level not in logging.getLevelNamesMapping():
+            raise ValueError(
+                f"log_level must be a Python logging level name, got {value!r}. "
+                f"Use one of DEBUG, INFO, WARNING, ERROR, CRITICAL."
+            )
+        return level
 
     @field_validator("database_url")
     @classmethod

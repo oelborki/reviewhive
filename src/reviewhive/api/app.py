@@ -20,6 +20,7 @@ from reviewhive.config import Settings, get_settings
 from reviewhive.github.client import GitHubClient
 from reviewhive.graph.build import build_review_graph
 from reviewhive.jobs import JobDeps
+from reviewhive.logging_setup import configure_logging
 from reviewhive.persistence import NullReviewStore
 
 logger = logging.getLogger(__name__)
@@ -66,9 +67,22 @@ async def _build_deps(settings: Settings) -> tuple[JobDeps, list]:  # pragma: no
 
     What is testable is tested elsewhere: `_require` has its own cases, and
     `test_startup.py` pins that it is still on the startup path, which is the part
-    a refactor could quietly drop.
+    a refactor could quietly drop. `configure_logging` gets the first half of that
+    and not the second — `test_logging_setup.py` covers the behaviour, but there
+    is no offline seam that can prove this line still runs, because everything
+    around it constructs the real clients the seam exists to keep out. If this
+    call goes missing the symptom is silence, so check it by eye when touching
+    lifespan.
     """
     _require(settings)
+    # After `_require`, and inside the owning branch, for two different reasons.
+    # After, because a misconfiguration propagates out of lifespan and uvicorn
+    # prints the traceback itself — and because leaving it after keeps the one
+    # test that exercises a real `create_app()` from installing a root handler
+    # into the suite. Inside, because `create_app(deps=...)` owns nothing, and
+    # process-wide logging is exactly the kind of global a test-injected app has
+    # no business reconfiguring.
+    configure_logging(settings.log_level)
 
     client = AsyncAnthropic(
         api_key=settings.anthropic_api_key,
