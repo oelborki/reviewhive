@@ -143,8 +143,12 @@ jobs:
 
       - name: The image carries no secrets
         run: |
+          # `|| true` is load-bearing: the image runs as a non-root user, so
+          # `find /` exits 1 on the directories it cannot read even when it
+          # matched nothing. Under `-o pipefail` that non-zero status fails the
+          # step and reads as "secrets found" — the opposite of what happened.
           found=$(docker run --rm --entrypoint sh reviewhive:ci -c \
-            'find / -name ".env" -o -name "CLAUDE.md" 2>/dev/null' | head)
+            'find / -name ".env" -o -name "CLAUDE.md" 2>/dev/null || true')
           if [ -n "$found" ]; then
             echo "::error::Secrets in the image: $found"
             echo "::error::.dockerignore excludes these; check it was not narrowed."
