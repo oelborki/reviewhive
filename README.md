@@ -221,16 +221,33 @@ built.
 Mention the bot in a comment and it works out what you want:
 
 ```
-@reviewhive                                    re-review the whole thing
-@reviewhive focus on error handling            re-review, narrowed
-@reviewhive why is this a problem?             answers in the thread
-@reviewhive this is validated upstream         re-judges that one finding
+/reviewhive                                    re-review the whole thing
+/reviewhive focus on error handling            re-review, narrowed
+/reviewhive why is this a problem?             answers in the thread
+/reviewhive this is validated upstream         re-judges that one finding
 ```
+
+**The trigger is `/reviewhive`, not `@reviewhive`, and that is not a style
+choice.** `ReviewHive` is a real GitHub account belonging to someone with no
+connection to this project, so the `@` form rendered as a link to a stranger's
+profile on every comment. It notified nobody only because the demo repository was
+private — publishing it would have made each one a genuine ping. A leading slash
+cannot be a GitHub username, so it cannot collide with an account that exists now
+or is registered later.
+
+**The bot cannot answer comments from the account it runs as.** The self-login
+check drops any comment whose sender matches the token's owner, and it is the only
+guard that works: a posted review fires one `pull_request_review_comment` delivery
+per inline comment — fifteen, measured — every one of them with `sender.type:
+"User"` and `author_association: "OWNER"`, because a PAT-driven bot *is* a person
+as far as the payload is concerned. Neither a bot-sender filter nor an association
+filter can tell the difference. The practical consequence is that the bot needs its
+own machine account, or nobody but a second human can talk to it.
 
 There is no command grammar. A cheap `claude-haiku-4-5` call classifies the
 comment into one of four actions and the dispatch is ordinary code, so a misread
 shows up as a logged rationale rather than as behaviour buried inside a reply. A
-bare `@reviewhive` skips the classifier entirely — there is nothing to interpret,
+bare `/reviewhive` skips the classifier entirely — there is nothing to interpret,
 so there is no reason to pay to interpret it.
 
 **Ambiguity resolves toward the cheap error.** A re-review costs money and posts a
@@ -411,7 +428,7 @@ database not named `reviewhive_test`.
 | 1 | Review pipeline against local diffs | **Done** |
 | 2 | PostgreSQL persistence, per-call cost telemetry | **Done** |
 | 3 | Webhook endpoint, signature verification, inline review comments | **Done** |
-| 3b | Conversational `@reviewhive` mentions | **Done** |
+| 3b | Conversational `/reviewhive` mentions | **Done** |
 | 4 | Full test coverage, CI, LLM merge pass | **Done** |
 | 5 | Docker, temporary deploy, demo | Container **done**; deploy and recording next |
 
