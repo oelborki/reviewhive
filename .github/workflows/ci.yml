@@ -1,7 +1,8 @@
 # Continuous integration.
 #
-# Three jobs, because the suite has three installation stories and a green run on
-# the wrong one proves very little. Six test modules gate themselves on an optional
+# Four jobs. Three of them exist because the suite has three installation stories
+# and a green run on the wrong one proves very little; the fourth builds the
+# container, which no amount of `pip install -e` exercises. Six test modules gate themselves on an optional
 # extra with `pytest.importorskip`, so a job installing only `.[dev]` skips 62 of
 # 327 tests and still reports success — it would never run the webhook, startup,
 # mention or model tests at all. Both test jobs therefore assert that nothing was
@@ -117,3 +118,63 @@ jobs:
             echo "::error::REVIEWHIVE_TEST_DATABASE_URL is unset or names the wrong database."
             exit 1
           fi
+
+  image:
+    name: container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built from the checkout exactly as a clean clone would be. The point is
+      # not that the Dockerfile parses — it is that the pinned dependencies still
+      # resolve and the package still installs, which nothing else here proves:
+      # every other job installs with `-e` from a working tree.
+      - name: Build the image
+        run: docker build -t reviewhive:ci .
+
+      # A build that produced a root-running image, or one carrying a credential,
+      # is a passing build and a shipped mistake. Both are one command to check
+      # and neither is visible in the build log.
+      - name: The image runs unprivileged
+        run: |
+          uid=$(docker run --rm --entrypoint id reviewhive:ci -u)
+          echo "uid=$uid"
+          test "$uid" != "0"
+
+      - name: The image carries no secrets
+        run: |
+          found=$(docker run --rm --entrypoint sh reviewhive:ci -c \
+            'find / -name ".env" -o -name "CLAUDE.md" 2>/dev/null' | head)
+          if [ -n "$found" ]; then
+            echo "::error::Secrets in the image: $found"
+            echo "::error::.dockerignore excludes these; check it was not narrowed."
+            exit 1
+          fi
+
+      # The whole stack, against the real Postgres image, with the migrations the
+      # entrypoint applies. This is the one job that exercises `docker/entrypoint.sh`
+      # and the `depends_on: service_healthy` wiring; a compose file that half-starts
+      # is otherwise only discovered by hand.
+      - name: The stack comes up and answers
+        run: |
+          cat > .env <<'ENV'
+          ANTHROPIC_API_KEY=sk-ant-not-a-real-key
+          REVIEWHIVE_GITHUB_TOKEN=github_pat_not_a_real_token
+          REVIEWHIVE_GITHUB_WEBHOOK_SECRET=ci-secret
+          REVIEWHIVE_ALLOWED_REPOS=oelborki/reviewhive-demo
+          ENV
+          docker compose up -d --build
+          # `whoami()` fails against a fake token and is logged rather than fatal
+          # by design, so startup completing is still the right assertion here.
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/healthz; then ok=1; break; fi
+            sleep 2
+          done
+          docker compose logs app
+          test "${ok:-0}" = "1"
+
+      - name: Migrations were applied
+        run: docker compose logs app | grep -q "alembic.runtime.migration"
+
+      - if: always()
+        run: docker compose down -v
