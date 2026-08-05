@@ -25,6 +25,7 @@ from anthropic import AsyncAnthropic
 
 from reviewhive.config import get_settings
 from reviewhive.graph.build import build_review_graph
+from reviewhive.logging_setup import configure_logging
 from reviewhive.models import ReviewResult
 from reviewhive.persistence import NullReviewStore
 from reviewhive.pricing import total_cost
@@ -156,10 +157,7 @@ def print_console(result: ReviewResult, elapsed: float) -> None:
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
-        format="%(levelname)-7s %(name)s: %(message)s",
-    )
+    configure_logging("INFO" if args.verbose else "WARNING")
 
     if not args.diff.is_file():
         sys.exit(f"No such file: {args.diff}")
