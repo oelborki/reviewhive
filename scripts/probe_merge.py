@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from anthropic import AsyncAnthropic
 
 from reviewhive.config import get_settings
 from reviewhive.graph.llm_merge import candidate_pairs, merge_findings
+from reviewhive.logging_setup import configure_logging
 from reviewhive.models import MergedFinding
 from reviewhive.pricing import cost_of
 
@@ -157,10 +157,7 @@ def report(results: list[tuple[dict, bool]], call) -> None:
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
-        format="%(levelname)-7s %(name)s: %(message)s",
-    )
+    configure_logging("INFO" if args.verbose else "WARNING")
 
     cases = load_cases(args.only)
     if not cases:

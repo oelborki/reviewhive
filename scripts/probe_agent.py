@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import sys
 import time
 from pathlib import Path
@@ -32,6 +31,7 @@ from anthropic import AsyncAnthropic
 from reviewhive.agents.definitions import AGENTS
 from reviewhive.config import get_settings
 from reviewhive.graph.build import build_review_graph
+from reviewhive.logging_setup import configure_logging
 from reviewhive.models import ReviewResult
 from reviewhive.pricing import total_cost
 
@@ -109,10 +109,7 @@ def print_console(agent: str, diff_path: Path, result: ReviewResult, elapsed: fl
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
-        format="%(levelname)-7s %(name)s: %(message)s",
-    )
+    configure_logging("INFO" if args.verbose else "WARNING")
 
     if not args.diff.is_file():
         sys.exit(f"No such file: {args.diff}")
