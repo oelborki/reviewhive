@@ -1,0 +1,77 @@
+# Render Blueprint for the temporary demo deployment.
+#
+# This describes a deployment that is meant to be torn down. It is committed
+# because the alternative — a dozen dashboard clicks recorded nowhere — is not
+# reproducible, and because what the service needs in order to boot is worth
+# stating in the repository rather than in someone's browser tab.
+#
+#   Render Dashboard -> Blueprints -> New Blueprint Instance -> pick this repo
+#
+# Three values are prompted for at creation (`sync: false`) rather than stored
+# here: the Anthropic key, the GitHub PAT and the webhook secret. Nothing secret
+# belongs in a tracked file.
+#
+# Free-tier facts that shape the demo, not incidental details:
+#
+#   * A free web service spins down after 15 minutes without inbound traffic and
+#     takes about a minute to wake. GitHub gives a webhook 10 seconds to answer,
+#     so the first delivery to a sleeping service *will* be recorded as failed.
+#     Wake it with a request before opening a pull request, or use GitHub's
+#     Redeliver button afterwards — deliveries are not retried automatically.
+#   * A free Postgres expires 30 days after creation and is limited to one per
+#     workspace.
+
+services:
+  - type: web
+    name: reviewhive
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+
+    # The endpoint exists for this. Render will not route traffic to an instance
+    # that fails it, which turns a service that booted but cannot serve into a
+    # failed deploy rather than a silent 502.
+    healthCheckPath: /healthz
+
+    # Off deliberately. A push to main during a recording would otherwise redeploy
+    # mid-demo, and a deploy mid-review strands a `running` row — background tasks
+    # die with the process.
+    autoDeploy: false
+
+    envVars:
+      # Render's connection string is a driver-less `postgresql://`, which
+      # `Settings` rejects on purpose. The entrypoint rewrites that one case to
+      # asyncpg; see docker/entrypoint.sh for why it is done there and not by
+      # relaxing the validator.
+      - key: REVIEWHIVE_DATABASE_URL
+        fromDatabase:
+          name: reviewhive-db
+          property: connectionString
+
+      # Read *without* the REVIEWHIVE_ prefix — it is aliased to the name the
+      # Anthropic SDK itself uses. Setting REVIEWHIVE_ANTHROPIC_API_KEY here
+      # would be silently ignored and the service would fail on its first review.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      - key: REVIEWHIVE_GITHUB_TOKEN
+        sync: false
+      - key: REVIEWHIVE_GITHUB_WEBHOOK_SECRET
+        sync: false
+
+      # Empty denies everything, and the service refuses to boot without it. With
+      # a public URL, allow-by-default is an open budget.
+      - key: REVIEWHIVE_ALLOWED_REPOS
+        value: oelborki/reviewhive-demo
+
+      # The reason an ignored delivery is readable in Render's log tail rather
+      # than a bare 200.
+      - key: REVIEWHIVE_LOG_LEVEL
+        value: INFO
+
+databases:
+  - name: reviewhive-db
+    plan: free
+    databaseName: reviewhive
+    user: reviewhive
