@@ -20,7 +20,7 @@ from reviewhive.mentions.intent import (
     strip_mention,
 )
 
-HANDLE = "@reviewhive"
+HANDLE = "/reviewhive"
 
 
 @pytest.fixture
@@ -40,19 +40,19 @@ def stub(result: CommentIntent | None = None, **kwargs) -> StubAnthropic:
 class TestBareMention:
     @pytest.mark.parametrize(
         "body",
-        ["@reviewhive", "  @reviewhive  ", "@reviewhive!", "@reviewhive ?", "@ReviewHive"],
+        ["/reviewhive", "  /reviewhive  ", "/reviewhive!", "/reviewhive ?", "/ReviewHive"],
     )
     def test_a_mention_with_no_instruction_is_bare(self, body: str) -> None:
         """Punctuation is not an instruction, and the handle is case-insensitive
         because people type it however they type it."""
         assert is_bare_mention(body, HANDLE)
 
-    @pytest.mark.parametrize("body", ["@reviewhive why?", "@reviewhive re-run", "hey @reviewhive"])
+    @pytest.mark.parametrize("body", ["/reviewhive why?", "/reviewhive re-run", "hey /reviewhive"])
     def test_a_mention_with_words_is_not_bare(self, body: str) -> None:
         assert not is_bare_mention(body, HANDLE)
 
     def test_the_handle_is_removed_from_the_body(self) -> None:
-        assert strip_mention("@reviewhive check the auth changes", HANDLE) == (
+        assert strip_mention("/reviewhive check the auth changes", HANDLE) == (
             "check the auth changes"
         )
 
@@ -61,7 +61,7 @@ class TestBareMention:
         so there is no reason to pay to interpret it."""
         client = stub()
 
-        result, call = await classify(client, settings, comment="@reviewhive")
+        result, call = await classify(client, settings, comment="/reviewhive")
 
         assert result.action == "full_review"
         assert call is None
@@ -73,7 +73,7 @@ class TestClassification:
         client = stub(intent(action="focused_review", focus="error handling"))
 
         result, call = await classify(
-            client, settings, comment="@reviewhive look again at error handling"
+            client, settings, comment="/reviewhive look again at error handling"
         )
 
         assert result.action == "focused_review"
@@ -84,9 +84,9 @@ class TestClassification:
     async def test_the_handle_is_stripped_before_the_model_sees_it(self, settings) -> None:
         client = stub(intent())
 
-        await classify(client, settings, comment="@reviewhive why is this a problem?")
+        await classify(client, settings, comment="/reviewhive why is this a problem?")
 
-        assert "@reviewhive" not in client.user_messages[0]
+        assert "/reviewhive" not in client.user_messages[0]
         assert "why is this a problem?" in client.user_messages[0]
 
     async def test_prior_findings_are_offered_with_their_ordinals(self, settings) -> None:
@@ -97,7 +97,7 @@ class TestClassification:
         await classify(
             client,
             settings,
-            comment="@reviewhive the second one is wrong",
+            comment="/reviewhive the second one is wrong",
             findings=[
                 PriorFinding(0, "app/db.py", 56, "high", "SQL injection"),
                 PriorFinding(1, "app/auth.py", 5, "high", "Hardcoded secret"),
@@ -111,7 +111,7 @@ class TestClassification:
     async def test_an_empty_findings_list_says_so(self, settings) -> None:
         client = stub(intent())
 
-        await classify(client, settings, comment="@reviewhive why?", findings=[])
+        await classify(client, settings, comment="/reviewhive why?", findings=[])
 
         assert "No findings have been posted" in client.user_messages[0]
 
@@ -123,7 +123,7 @@ class TestThreadTarget:
         client = stub(intent(action="reconsider", target_ordinal=7))
 
         result, _ = await classify(
-            client, settings, comment="@reviewhive this is intentional", thread_target=2
+            client, settings, comment="/reviewhive this is intentional", thread_target=2
         )
 
         assert result.target_ordinal == 2
@@ -131,14 +131,14 @@ class TestThreadTarget:
     async def test_the_model_is_told_not_to_guess(self, settings) -> None:
         client = stub(intent(action="reconsider"))
 
-        await classify(client, settings, comment="@reviewhive disagree", thread_target=3)
+        await classify(client, settings, comment="/reviewhive disagree", thread_target=3)
 
         assert "already determined" in client.user_messages[0]
 
     async def test_without_a_thread_the_models_answer_stands(self, settings) -> None:
         client = stub(intent(action="reconsider", target_ordinal=4))
 
-        result, _ = await classify(client, settings, comment="@reviewhive the auth one is wrong")
+        result, _ = await classify(client, settings, comment="/reviewhive the auth one is wrong")
 
         assert result.target_ordinal == 4
 
@@ -150,7 +150,7 @@ class TestFailure:
         cannot be wrong in an expensive direction."""
         client = stub(errors={"CommentIntent": overloaded_error()})
 
-        result, call = await classify(client, settings, comment="@reviewhive what about this?")
+        result, call = await classify(client, settings, comment="/reviewhive what about this?")
 
         assert result.action == "answer_question"
         assert result.question == "what about this?"
@@ -159,7 +159,7 @@ class TestFailure:
     async def test_a_refusal_falls_back_the_same_way(self, settings) -> None:
         client = stub(intent(), refusals={"CommentIntent"})
 
-        result, call = await classify(client, settings, comment="@reviewhive explain")
+        result, call = await classify(client, settings, comment="/reviewhive explain")
 
         assert result.action == "answer_question"
         assert call is not None and call.error
@@ -167,7 +167,7 @@ class TestFailure:
     async def test_unusable_output_falls_back_the_same_way(self, settings) -> None:
         client = stub()  # no canned CommentIntent -> parsed_output is None
 
-        result, call = await classify(client, settings, comment="@reviewhive explain")
+        result, call = await classify(client, settings, comment="/reviewhive explain")
 
         assert result.action == "answer_question"
         assert call is not None and call.error
@@ -175,7 +175,7 @@ class TestFailure:
     async def test_classify_never_raises(self, settings) -> None:
         client = stub(errors={"CommentIntent": overloaded_error()})
 
-        result, _ = await classify(client, settings, comment="@reviewhive anything")
+        result, _ = await classify(client, settings, comment="/reviewhive anything")
 
         assert result.action in {
             "full_review",

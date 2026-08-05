@@ -6,7 +6,7 @@ than as behaviour buried inside a free-form reply.
 
 Two things never reach the model:
 
-- **An empty mention.** `@reviewhive` with nothing after it is a full re-review by
+- **An empty mention.** `/reviewhive` with nothing after it is a full re-review by
   definition, so it short-circuits with no call at all. There is nothing to
   interpret and no reason to pay to interpret it.
 - **The finding a threaded reply concerns.** GitHub already says which comment was
@@ -75,8 +75,8 @@ def strip_mention(body: str, handle: str) -> str:
 def is_bare_mention(body: str, handle: str) -> bool:
     """Whether the comment is the trigger and nothing else.
 
-    Punctuation and whitespace do not count as an instruction, so `@reviewhive?`
-    and `@reviewhive !!` are both bare. Anything with a word in it is not.
+    Punctuation and whitespace do not count as an instruction, so `/reviewhive?`
+    and `/reviewhive !!` are both bare. Anything with a word in it is not.
     """
     remainder = strip_mention(body, handle)
     return not re.search(r"\w", remainder)
