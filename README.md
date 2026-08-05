@@ -177,6 +177,21 @@ parsed diff before sending — and if GitHub still refuses, the review is re-pos
 with no inline comments and a note saying so. The retry is guarded: a `422` from a
 stale commit sha or a read-only token has nothing to remove, so it is not retried.
 
+**A 200 that did nothing always says why.** Most deliveries are ignored, and for
+good reasons — an edited comment, a draft, a `synchronize` with the flag off, a
+redelivery of something already reviewed. Every one of those exits logs the reason
+it took, so the service's most common behaviour is readable in the log rather than
+inferred from a bare `200 OK`:
+
+```
+13:58:50 INFO     reviewhive.api.webhook: ignored: action 'edited' is not a trigger; triggers are ['opened', 'ready_for_review', 'reopened']
+13:59:16 INFO     reviewhive.api.webhook: ignored: oelborki/reviewhive-demo#1 is a draft
+```
+
+`REVIEWHIVE_LOG_LEVEL` (default `INFO`) applies to this project's loggers only —
+dependencies stay at `WARNING`, so `DEBUG` gets you more of the reasoning above
+rather than an httpx line per HTTP request.
+
 **Background tasks die with the process.** A deploy or a `--reload` restart
 mid-review strands a `running` row. That is the honest cost of running in-process
 rather than behind a queue; `mark_running` at least makes the orphan diagnosable
@@ -315,7 +330,7 @@ FROM findings GROUP BY 1, 2 ORDER BY 3 DESC;
 ## Tests
 
 ```bash
-pytest              # 348 tests, no network, no API spend, no database
+pytest              # 399 tests, no network, no API spend, no database
 ruff check .
 pytest -m db        # 30 more, against the compose Postgres
 ```
