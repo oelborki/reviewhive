@@ -40,7 +40,7 @@ SELF = "oelborki"
 
 def comment_payload(
     *,
-    body: str = "@reviewhive why is this a problem?",
+    body: str = "/reviewhive why is this a problem?",
     login: str = "someone-else",
     association: str = "OWNER",
     user_type: str = "User",
@@ -296,7 +296,7 @@ class TestDispatch:
             }
         )
         with client:
-            post(client, comment_payload(body="@reviewhive this is validated upstream"))
+            post(client, comment_payload(body="/reviewhive this is validated upstream"))
 
         replies = [r for r in posted if r.url.path.endswith("/issues/1/comments")]
         assert "withdrawing" in json.loads(replies[0].content)["body"]
@@ -306,7 +306,7 @@ class TestDispatch:
         await seed_review(store)
         client, posted, stub = build()
         with client:
-            post(client, comment_payload(body="@reviewhive"))
+            post(client, comment_payload(body="/reviewhive"))
 
         assert "CommentIntent" not in stub.parse_calls
         assert [r for r in posted if r.url.path.endswith("/pulls/1/reviews")]
@@ -358,7 +358,7 @@ class TestCost:
             }
         )
         with client:
-            post(client, comment_payload(body="@reviewhive please take another look"))
+            post(client, comment_payload(body="/reviewhive please take another look"))
 
         mention = next(s for s in store.reviews.values() if s.source == "mention")
         agents = [c.agent for c in mention.result.calls]

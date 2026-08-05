@@ -70,6 +70,12 @@ services:
       - key: REVIEWHIVE_LOG_LEVEL
         value: INFO
 
+      # Pinned rather than left to the default, because this deployment already
+      # ran with the old `@reviewhive` value and a changed default does not reach
+      # an environment that was configured before the change.
+      - key: REVIEWHIVE_MENTION_HANDLE
+        value: /reviewhive
+
 databases:
   - name: reviewhive-db
     plan: free

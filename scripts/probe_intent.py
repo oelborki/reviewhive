@@ -7,7 +7,7 @@ this is how to answer it.
 
     python scripts/probe_intent.py                 # the built-in phrasing set
     python scripts/probe_intent.py --only ambiguous
-    python scripts/probe_intent.py "@reviewhive why does this matter?"
+    python scripts/probe_intent.py "/reviewhive why does this matter?"
 
 Each case carries the action it should produce, so a run scores itself. The point
 is not a perfect score — several cases are genuinely ambiguous and are marked so —
@@ -54,32 +54,32 @@ class Case:
 
 CASES = [
     # --- plainly asking for the whole thing again ---
-    Case("@reviewhive", "full_review", "bare", "short-circuits, no call"),
-    Case("@reviewhive take another look", "full_review", "full"),
-    Case("@reviewhive re-review please", "full_review", "full"),
-    Case("@reviewhive I've pushed fixes, can you check again", "full_review", "full"),
+    Case("/reviewhive", "full_review", "bare", "short-circuits, no call"),
+    Case("/reviewhive take another look", "full_review", "full"),
+    Case("/reviewhive re-review please", "full_review", "full"),
+    Case("/reviewhive I've pushed fixes, can you check again", "full_review", "full"),
     # --- asking again, but narrowed ---
-    Case("@reviewhive check this again but focus on error handling", "focused_review", "focused"),
-    Case("@reviewhive just look at the auth changes", "focused_review", "focused"),
-    Case("@reviewhive can you re-check the SQL stuff specifically", "focused_review", "focused"),
+    Case("/reviewhive check this again but focus on error handling", "focused_review", "focused"),
+    Case("/reviewhive just look at the auth changes", "focused_review", "focused"),
+    Case("/reviewhive can you re-check the SQL stuff specifically", "focused_review", "focused"),
     # --- asking something answerable ---
-    Case("@reviewhive why is this a problem?", "answer_question", "question"),
-    Case("@reviewhive what would you use instead?", "answer_question", "question"),
-    Case("@reviewhive does this apply to the other handler too?", "answer_question", "question"),
-    Case("@reviewhive how would I fix finding 2?", "answer_question", "question"),
+    Case("/reviewhive why is this a problem?", "answer_question", "question"),
+    Case("/reviewhive what would you use instead?", "answer_question", "question"),
+    Case("/reviewhive does this apply to the other handler too?", "answer_question", "question"),
+    Case("/reviewhive how would I fix finding 2?", "answer_question", "question"),
     # --- disputing something already filed ---
     Case(
-        "@reviewhive this is intentional, the input is validated upstream",
+        "/reviewhive this is intentional, the input is validated upstream",
         "reconsider",
         "dispute",
     ),
-    Case("@reviewhive the caller already holds the lock, so this is fine", "reconsider", "dispute"),
-    Case("@reviewhive I disagree with finding 1, that's a test fixture", "reconsider", "dispute"),
+    Case("/reviewhive the caller already holds the lock, so this is fine", "reconsider", "dispute"),
+    Case("/reviewhive I disagree with finding 1, that's a test fixture", "reconsider", "dispute"),
     # --- genuinely ambiguous: must land on answer_question, the cheap wrong ---
-    Case("@reviewhive thoughts?", "answer_question", "ambiguous", "vague but has text"),
-    Case("@reviewhive hmm", "answer_question", "ambiguous", "a word, so not bare"),
-    Case("@reviewhive not sure about this one", "answer_question", "ambiguous"),
-    Case("@reviewhive anything else?", "answer_question", "ambiguous", "could read as re-review"),
+    Case("/reviewhive thoughts?", "answer_question", "ambiguous", "vague but has text"),
+    Case("/reviewhive hmm", "answer_question", "ambiguous", "a word, so not bare"),
+    Case("/reviewhive not sure about this one", "answer_question", "ambiguous"),
+    Case("/reviewhive anything else?", "answer_question", "ambiguous", "could read as re-review"),
 ]
 
 

@@ -82,10 +82,20 @@ class Settings(BaseSettings):
     # cannot collapse a five-commit burst — that is five reviews and five bills.
     review_on_synchronize: bool = False
 
-    # The literal string that summons the bot in a comment. Not a real GitHub
-    # mention: the bot acts as a personal access token, so this notifies nobody
-    # and is only a trigger token.
-    mention_handle: str = "@reviewhive"
+    # The literal string that summons the bot in a comment.
+    #
+    # Deliberately not an `@name`. This was `@reviewhive` on the reasoning that
+    # the bot acts as a personal access token and so notifies nobody — which was
+    # wrong twice over. `ReviewHive` is a real GitHub account, registered
+    # 2025-12-27 by someone unconnected to this project, so every demo comment
+    # linked to a stranger's profile. It notified nobody only because the demo
+    # repository is private; making it public, which is the entire point of a
+    # portfolio repository, would have turned each one into a real ping.
+    #
+    # A leading slash cannot be a GitHub username, so this can never collide with
+    # an account that exists now or is registered later. It also reads as a
+    # command, which is what it is.
+    mention_handle: str = "/reviewhive"
 
     # Anyone who can comment can spend money. The self-login guard stops the bot
     # answering itself; this stops a person, or a loop nobody predicted, doing it
