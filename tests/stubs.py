@@ -55,6 +55,10 @@ class StubAnthropic:
     stop_reasons: dict[str, str] = field(default_factory=dict)
 
     parse_calls: list[str] = field(default_factory=list)
+    # Everything passed to `parse` beyond system/messages/output_format. Sampling
+    # parameters reach the API and nothing else observes them, so without this a
+    # setting could stop being sent and every test would still pass.
+    parse_kwargs: list[dict] = field(default_factory=list)
     # The user turn each agent was sent. Recorded because the system prompt is
     # identical on every run, so anything per-request — the diff, a focus — can
     # only be asserted here.
@@ -69,6 +73,7 @@ class StubAnthropic:
     async def _parse(self, *, system: str, messages=None, output_format=None, **_kwargs):
         if messages:
             self.user_messages.append(messages[0]["content"])
+        self.parse_kwargs.append(dict(_kwargs))
 
         schema = getattr(output_format, "__name__", "AgentFindings")
         if schema != "AgentFindings":

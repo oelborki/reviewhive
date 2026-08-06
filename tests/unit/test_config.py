@@ -96,6 +96,19 @@ class TestMinSeverity:
             Settings(anthropic_api_key="test", min_severity=bad)
 
 
+class TestAgentTemperature:
+    def test_defaults_to_zero(self) -> None:
+        assert Settings(anthropic_api_key="test").agent_temperature == 0.0
+
+    @pytest.mark.parametrize("value", [-0.1, 1.5])
+    def test_out_of_range_is_rejected_at_load(self, value: float) -> None:
+        """The API rejects these too, but at first review rather than at startup —
+        and a review that fails inside a background task is the failure this
+        project keeps having to debug from a 200 that did nothing."""
+        with pytest.raises(ValidationError):
+            Settings(anthropic_api_key="test", agent_temperature=value)
+
+
 class TestDatabaseUrl:
     def test_unset_is_valid_and_means_do_not_persist(self) -> None:
         """The CLI has to run with no database. An absent URL is a supported

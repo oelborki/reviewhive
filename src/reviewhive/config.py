@@ -30,6 +30,23 @@ class Settings(BaseSettings):
 
     agent_model: str = "claude-haiku-4-5"
 
+    # Set, rather than left at the API default, because run-to-run variance is this
+    # project's most-reported complaint and nothing had ever measured it.
+    # `probe_stability.py` on `mixed_rich.diff`, five runs each: at the default the
+    # security agent returned 2-4 findings (stdev 1.00) and only 33% of the distinct
+    # issues it raised appeared in every run; at 0 it returned 2-3 (stdev 0.55) and
+    # 50%. The findings that come and go are exactly what a re-review of unchanged
+    # code reports as new.
+    #
+    # It costs no recall: `probe_security_scope.py --temperature 0` scores identically
+    # to the default on all five cases, including the three ungated-endpoint cases
+    # PR #26 exists to hold. It fixes nothing about *false* positives either —
+    # `sound_auth` still fails 0/3, unchanged.
+    #
+    # This is not a determinism guarantee. At 0 the same diff still gave 2-3
+    # findings; sampling is narrowed, the service is not made reproducible.
+    agent_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+
     # --- Budget ---
     max_prompt_tokens: int = 60_000
     max_file_diff_lines: int = 400

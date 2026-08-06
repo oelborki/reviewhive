@@ -97,6 +97,7 @@ async def run_agent(
         message = await client.messages.parse(
             model=settings.agent_model,
             max_tokens=settings.agent_max_tokens,
+            temperature=settings.agent_temperature,
             system=load_prompt(spec.prompt_file),
             messages=[{"role": "user", "content": _user_message(diff_text, focus)}],
             output_format=AgentFindings,
