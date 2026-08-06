@@ -40,6 +40,26 @@ async def test_a_normal_call_returns_findings_and_telemetry(settings) -> None:
     assert outcome.call.input_tokens > 0
 
 
+async def test_the_configured_temperature_reaches_the_call(settings) -> None:
+    """Nothing else observes a sampling parameter. If this stopped being sent the
+    agents would quietly return to the API default, every test would still pass,
+    and the only symptom would be a re-review that reports more findings nobody
+    introduced — which is exactly the failure it was set to reduce."""
+    stub = StubAnthropic(responses={"security": [finding()]})
+
+    await run_agent(SPEC, stub, DIFF, settings.model_copy(update={"agent_temperature": 0.4}))
+
+    assert stub.parse_kwargs[0]["temperature"] == 0.4
+
+
+async def test_temperature_defaults_to_zero(settings) -> None:
+    stub = StubAnthropic(responses={"security": [finding()]})
+
+    await run_agent(SPEC, stub, DIFF, settings)
+
+    assert stub.parse_kwargs[0]["temperature"] == 0.0
+
+
 async def test_a_refusal_is_recorded_rather_than_raised(settings) -> None:
     """The model declined the request. There is nothing to report and nothing
     to retry, but the review must still say the lane was not covered."""
