@@ -103,6 +103,7 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
     kept, suppressed = rank_and_cut(
         findings,
         min_confidence=settings.min_confidence,
+        min_severity=settings.min_severity,
         max_posted=settings.max_posted_findings,
     )
 

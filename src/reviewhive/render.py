@@ -72,7 +72,7 @@ def render_summary(result: ReviewResult) -> str:
         lines.append("")
         lines.append(
             f"_{result.suppressed_count} further finding(s) not shown — "
-            f"below the confidence floor, or beyond the posting cap._"
+            f"below the reporting thresholds, or beyond the posting cap._"
         )
 
     unplaced = _unplaced_note(result)
