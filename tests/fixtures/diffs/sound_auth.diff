@@ -1,0 +1,35 @@
+diff --git a/app/main.py b/app/main.py
+index 89622f0..3227a7c 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -2,9 +2,12 @@
+ 
+ from __future__ import annotations
+ 
+-from fastapi import FastAPI
++import hmac
++import os
+ 
+-from app import db
++from fastapi import Depends, FastAPI, Header, HTTPException
++
++from app import db, notify
+ from app.models import TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+@@ -26,3 +29,15 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++def require_api_key(x_api_key: str = Header(default="")) -> None:
++    """Digests are sent by the scheduler, not by end users."""
++    expected = os.environ.get("NOTIFY_API_KEY", "")
++    if not expected or not hmac.compare_digest(x_api_key, expected):
++        raise HTTPException(status_code=401, detail="unauthorized")
++
++
++@app.post("/notify/{owner}", dependencies=[Depends(require_api_key)])
++def notify_owner(owner: str) -> dict[str, int]:
++    return {"status": notify.send_digest(owner)}

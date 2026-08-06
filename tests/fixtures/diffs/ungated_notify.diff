@@ -1,0 +1,69 @@
+diff --git a/app/main.py b/app/main.py
+index 4a2f3f2..d2bc2e6 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -4,7 +4,7 @@
+ 
+ from fastapi import FastAPI
+ 
+-from app import db
++from app import db, notify
+ from app.models import TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+@@ -30,3 +30,9 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++@app.post("/notify/{owner}")
++def notify_owner(owner: str):
++    s = notify.send_digest(owner)
++    return {"sent": s}
+diff --git a/app/notify.py b/app/notify.py
+new file mode 100644
+index 0000000..b27e883
+--- /dev/null
++++ b/app/notify.py
+@@ -0,0 +1,40 @@
++"""Daily digest notifications for task owners."""
++
++from __future__ import annotations
++
++import sqlite3
++import urllib.request
++
++DB = "tasks.db"
++
++SLACK_TOKEN = "REPLACE-ME-slack-bot-token"
++SLACK_URL = "https://slack.example.com/api/chat.postMessage"
++
++
++def pending_for(o):
++    c = sqlite3.connect(DB)
++    c.row_factory = sqlite3.Row
++    q = "SELECT id, title FROM tasks WHERE owner = '" + o + "' AND done = 0 LIMIT 50"
++    r = c.execute(q).fetchall()
++    c.close()
++    return r
++
++
++def send_digest(o):
++    rows = pending_for(o)
++
++    m = "You have %d open tasks:\n" % len(rows)
++    for t in rows:
++        m = m + "- " + t["title"] + "\n"
++
++    body = ('{"channel": "@' + o + '", "text": "' + m + '"}').encode()
++    req = urllib.request.Request(
++        SLACK_URL,
++        data=body,
++        headers={
++            "Authorization": "Bearer " + SLACK_TOKEN,
++            "Content-Type": "application/json",
++        },
++    )
++    resp = urllib.request.urlopen(req)
++    return resp.status
