@@ -140,10 +140,10 @@ class AgentCall(BaseModel):
 class ReviewResult(BaseModel):
     """Everything one review run produced. The graph's terminal output.
 
-    `findings` holds only what was *posted*: `rank_and_cut` drops anything below
-    the confidence floor and anything past the cap, and only `suppressed_count`
-    survives of the rest. Anything persisting this stores posted findings, not all
-    of them.
+    `findings` holds only what was *posted*: `rank_and_cut` withholds anything below
+    the confidence floor, anything below the severity floor, and anything past the
+    cap, and only `suppressed_count` survives of the rest. Anything persisting this
+    stores posted findings, not all of them.
 
     For the run's cost, call `reviewhive.pricing.total_cost` — it is not a member
     here because that would put a price list inside the domain model.
@@ -151,7 +151,10 @@ class ReviewResult(BaseModel):
 
     findings: list[MergedFinding] = Field(default_factory=list)
     suppressed_count: int = Field(
-        default=0, description="Findings that survived dedup but were cut by the posting cap."
+        default=0,
+        description=(
+            "Findings that survived dedup but were withheld by a threshold or the posting cap."
+        ),
     )
     skipped_files: list[str] = Field(
         default_factory=list, description="Files excluded from review, with the reason appended."

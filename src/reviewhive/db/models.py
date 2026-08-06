@@ -222,8 +222,9 @@ class AgentCallRow(Base):
 class FindingRow(Base):
     """One posted finding.
 
-    Posted, not produced: `rank_and_cut` drops anything under the confidence floor
-    or past the cap, and only a count of those survives into `ReviewResult`. This
+    Posted, not produced: `rank_and_cut` withholds anything under the confidence
+    floor, anything under the severity floor, and anything past the cap, and only a
+    count of those survives into `ReviewResult`. This
     table therefore holds what a reader would have seen, which is also what
     Phase 3 needs when it records whether a finding went inline or into the
     summary.

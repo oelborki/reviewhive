@@ -9,6 +9,8 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from reviewhive.models import Severity
+
 # Anything else — a bare `postgresql://`, or `psycopg2` — fails deep inside
 # SQLAlchemy with an error about a missing greenlet, which reads as a bug in this
 # project rather than a URL typo.
@@ -33,6 +35,12 @@ class Settings(BaseSettings):
     max_file_diff_lines: int = 400
     max_posted_findings: int = 15
     min_confidence: float = 0.35
+    # A floor on what is worth *reporting*, not on what is worth finding. Without
+    # one, two LOW naming nits are enough to deny a clean verdict on a diff that
+    # has nothing wrong with it: demo PR #4 was a tested, type-hinted pure function
+    # and drew "test name uses indefinite article awkwardly". `low` reports
+    # everything, which is what this shipped with, so the default changes nothing.
+    min_severity: Severity = "low"
 
     # --- Dedup ---
     # On. `graph/llm_merge.py` reads this, and the pass costs one cheap call to

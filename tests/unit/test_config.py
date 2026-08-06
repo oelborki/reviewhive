@@ -77,6 +77,25 @@ class TestGitHubCredentials:
         assert settings.github_webhook_secret == "s3cret"
 
 
+class TestMinSeverity:
+    def test_the_default_reports_everything(self) -> None:
+        """A new floor that defaulted any higher would silently start hiding
+        findings from every deployment that did not ask for it."""
+        assert Settings(anthropic_api_key="test").min_severity == "low"
+
+    @pytest.mark.parametrize("level", ["high", "medium", "low"])
+    def test_each_severity_is_accepted(self, level: str) -> None:
+        assert Settings(anthropic_api_key="test", min_severity=level).min_severity == level
+
+    @pytest.mark.parametrize("bad", ["none", "LOW", "critical", "0.5"])
+    def test_anything_else_is_rejected_at_load(self, bad: str) -> None:
+        """Caught at startup rather than falling back. A typo'd floor that silently
+        became `low` would look like the setting having no effect, which is the
+        hardest kind of misconfiguration to notice."""
+        with pytest.raises(ValidationError):
+            Settings(anthropic_api_key="test", min_severity=bad)
+
+
 class TestDatabaseUrl:
     def test_unset_is_valid_and_means_do_not_persist(self) -> None:
         """The CLI has to run with no database. An absent URL is a supported

@@ -72,7 +72,7 @@ def render_summary(result: ReviewResult) -> str:
         lines.append("")
         lines.append(
             f"_{result.suppressed_count} further finding(s) not shown — "
-            f"only the highest-ranked are posted._"
+            f"below the reporting thresholds, or beyond the posting cap._"
         )
 
     unplaced = _unplaced_note(result)
@@ -102,9 +102,17 @@ def _headline(result: ReviewResult) -> str:
 
 
 def _no_findings_verdict(result: ReviewResult) -> str:
-    if not result.skipped_files:
-        return "No issues found."
-    return "No issues found in the files reviewed."
+    """The clean verdict, which must not overstate itself.
+
+    "No issues found" is a claim about the diff. When findings existed and a
+    threshold removed them it is a claim about the *configuration*, and saying the
+    former would be false — so the qualified wording is load-bearing, not padding.
+    The count itself follows in the suppression line.
+    """
+    scope = " in the files reviewed" if result.skipped_files else ""
+    if result.suppressed_count:
+        return f"Nothing found{scope} above the reporting threshold."
+    return f"No issues found{scope}."
 
 
 def _index_entry(finding: MergedFinding) -> str:

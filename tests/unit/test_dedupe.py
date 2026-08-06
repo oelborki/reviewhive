@@ -291,7 +291,9 @@ class TestRankAndCut:
         high_agreed = merged(severity="high", title="High agreed", file="a.py", confidence=0.6)
         high_agreed = high_agreed.model_copy(update={"sources": ["security", "style"]})
 
-        ranked, _ = rank_and_cut([low, high_solo, high_agreed], min_confidence=0.0, max_posted=10)
+        ranked, _ = rank_and_cut(
+            [low, high_solo, high_agreed], min_confidence=0.0, min_severity="low", max_posted=10
+        )
 
         assert [f.title for f in ranked] == ["High solo", "High agreed", "Low one"]
 
@@ -300,7 +302,9 @@ class TestRankAndCut:
         agreed = merged(severity="high", title="Agreed", file="c.py", confidence=0.8)
         agreed = agreed.model_copy(update={"sources": ["security", "style"]})
 
-        ranked, _ = rank_and_cut([solo, agreed], min_confidence=0.0, max_posted=10)
+        ranked, _ = rank_and_cut(
+            [solo, agreed], min_confidence=0.0, min_severity="low", max_posted=10
+        )
 
         assert [f.title for f in ranked] == ["Agreed", "Solo"]
 
@@ -308,15 +312,78 @@ class TestRankAndCut:
         ranked, suppressed = rank_and_cut(
             [merged(confidence=0.9, title="Keep"), merged(confidence=0.1, title="Drop")],
             min_confidence=0.5,
+            min_severity="low",
             max_posted=10,
         )
 
         assert [f.title for f in ranked] == ["Keep"]
-        assert suppressed == 0, "confidence filtering is not the posting cap"
+        assert suppressed == 1, "a finding removed by the floor is still withheld from the reader"
+
+    def test_filters_below_severity_floor(self) -> None:
+        ranked, suppressed = rank_and_cut(
+            [
+                merged(severity="high", title="Keep high"),
+                merged(severity="medium", title="Keep medium", file="b.py"),
+                merged(severity="low", title="Drop low", file="c.py"),
+            ],
+            min_confidence=0.0,
+            min_severity="medium",
+            max_posted=10,
+        )
+
+        assert [f.title for f in ranked] == ["Keep high", "Keep medium"]
+        assert suppressed == 1
+
+    def test_the_default_floor_reports_everything(self) -> None:
+        """`low` is the shipped default, so adding the floor must change nothing for
+        anyone who does not set it."""
+        findings = [merged(severity=sev, file=f"{sev}.py") for sev in ("high", "medium", "low")]
+
+        ranked, suppressed = rank_and_cut(
+            findings, min_confidence=0.0, min_severity="low", max_posted=10
+        )
+
+        assert len(ranked) == 3
+        assert suppressed == 0
+
+    def test_every_reason_for_withholding_is_counted_together(self) -> None:
+        """One number reaches the reader, so it has to cover all three reasons."""
+        findings = [
+            merged(severity="high", title="A", file="a.py"),
+            merged(severity="high", title="B", file="b.py"),
+            merged(severity="low", title="C", file="c.py"),
+            merged(severity="high", title="D", file="d.py", confidence=0.1),
+        ]
+
+        ranked, suppressed = rank_and_cut(
+            findings, min_confidence=0.5, min_severity="medium", max_posted=1
+        )
+
+        assert len(ranked) == 1
+        assert suppressed == 3, "one below confidence, one below severity, one past the cap"
+
+    def test_the_floor_and_the_cap_are_counted_together(self) -> None:
+        """One number reaches the reader, so it has to cover both reasons a finding
+        is missing. Counting only the cap made a fully-filtered review render as a
+        clean one."""
+        findings = [
+            merged(title="A", file="a.py", confidence=0.9),
+            merged(title="B", file="b.py", confidence=0.9),
+            merged(title="C", file="c.py", confidence=0.1),
+        ]
+
+        ranked, suppressed = rank_and_cut(
+            findings, min_confidence=0.5, min_severity="low", max_posted=1
+        )
+
+        assert len(ranked) == 1
+        assert suppressed == 2, "one below the floor, one past the cap"
 
     def test_cap_reports_the_remainder(self) -> None:
         findings = [merged(title=f"Issue {i}", line=i * 100) for i in range(10)]
-        ranked, suppressed = rank_and_cut(findings, min_confidence=0.0, max_posted=3)
+        ranked, suppressed = rank_and_cut(
+            findings, min_confidence=0.0, min_severity="low", max_posted=3
+        )
 
         assert len(ranked) == 3
         assert suppressed == 7
@@ -326,6 +393,6 @@ class TestRankAndCut:
             merged(title="Same", file="z.py", line=1),
             merged(title="Same", file="a.py", line=1),
         ]
-        ranked, _ = rank_and_cut(findings, min_confidence=0.0, max_posted=10)
+        ranked, _ = rank_and_cut(findings, min_confidence=0.0, min_severity="low", max_posted=10)
 
         assert [f.file for f in ranked] == ["a.py", "z.py"]
