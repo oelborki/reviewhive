@@ -157,16 +157,24 @@ async def _count(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-async def run_once(client: AsyncAnthropic, model: str, diff_text: str, max_tokens: int):
+async def run_once(
+    client: AsyncAnthropic,
+    model: str,
+    diff_text: str,
+    max_tokens: int,
+    temperature: float | None = None,
+):
     budget = await build_budget(
         parse_diff(diff_text), _count, max_prompt_tokens=60_000, max_file_diff_lines=400
     )
     if not budget.files:
         sys.exit("The fixture parsed to zero files — the diff is malformed, not the prompt.")
 
+    extra = {} if temperature is None else {"temperature": temperature}
     message = await client.messages.parse(
         model=model,
         max_tokens=max_tokens,
+        **extra,
         system=load_prompt("security.md"),
         messages=[
             {
@@ -264,6 +272,12 @@ async def main() -> None:
     parser.add_argument("--only", choices=[c.name for c in CASES])
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--show-bodies", action="store_true")
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Omit for the API default, which is what agents/base.py ships with.",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -282,7 +296,11 @@ async def main() -> None:
         good = 0
         for attempt in range(1, args.runs + 1):
             findings, cost = await run_once(
-                client, settings.agent_model, diff_text, settings.agent_max_tokens
+                client,
+                settings.agent_model,
+                diff_text,
+                settings.agent_max_tokens,
+                args.temperature,
             )
             total_cost += cost
             case.runs.append(findings)
