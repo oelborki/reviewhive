@@ -312,7 +312,22 @@ class TestRankAndCut:
         )
 
         assert [f.title for f in ranked] == ["Keep"]
-        assert suppressed == 0, "confidence filtering is not the posting cap"
+        assert suppressed == 1, "a finding removed by the floor is still withheld from the reader"
+
+    def test_the_floor_and_the_cap_are_counted_together(self) -> None:
+        """One number reaches the reader, so it has to cover both reasons a finding
+        is missing. Counting only the cap made a fully-filtered review render as a
+        clean one."""
+        findings = [
+            merged(title="A", file="a.py", confidence=0.9),
+            merged(title="B", file="b.py", confidence=0.9),
+            merged(title="C", file="c.py", confidence=0.1),
+        ]
+
+        ranked, suppressed = rank_and_cut(findings, min_confidence=0.5, max_posted=1)
+
+        assert len(ranked) == 1
+        assert suppressed == 2, "one below the floor, one past the cap"
 
     def test_cap_reports_the_remainder(self) -> None:
         findings = [merged(title=f"Issue {i}", line=i * 100) for i in range(10)]

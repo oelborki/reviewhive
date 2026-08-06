@@ -86,6 +86,23 @@ class TestSummary:
 
         assert "No issues found in the files reviewed." in summary
 
+    def test_a_filtered_review_is_not_reported_as_a_clean_one(self) -> None:
+        """Findings existed and a threshold removed them, so "No issues found" would
+        be a false statement about the code rather than a true one about the
+        configuration."""
+        summary = render_summary(result(findings=[], suppressed_count=4))
+
+        assert "No issues found." not in summary
+        assert "Nothing found above the reporting threshold." in summary
+        assert "4 further finding(s) not shown" in summary
+
+    def test_a_filtered_review_with_skips_qualifies_on_both_counts(self) -> None:
+        summary = render_summary(
+            result(findings=[], suppressed_count=2, skipped_files=["huge.py (binary)"])
+        )
+
+        assert "Nothing found in the files reviewed above the reporting threshold." in summary
+
     def test_footer_reports_cost_and_tokens(self) -> None:
         summary = render_summary(result())
 
