@@ -189,24 +189,31 @@ def rank_and_cut(
     findings: list[MergedFinding],
     *,
     min_confidence: float,
+    min_severity: Severity,
     max_posted: int,
 ) -> tuple[list[MergedFinding], int]:
-    """Order findings for posting and enforce the confidence floor and the per-PR cap.
+    """Order findings for posting and enforce the thresholds and the per-PR cap.
 
     Returns the findings to post and how many were withheld, so the summary can say
     "and 4 more" rather than silently hiding them.
 
-    **Both reasons for withholding are counted.** The confidence floor used to
+    **Every reason for withholding is counted.** The confidence floor used to
     remove findings without counting them, so a review whose findings all fell
     below it rendered a bare clean verdict — indistinguishable from a diff nobody
     had anything to say about. Coverage is disclosed everywhere else here, and a
     threshold is not an exception to that.
     """
+    floor = SEVERITY_RANK[min_severity]
+
     # Confidence outranks agreement. A second reviewer raising the same issue is
     # weak evidence at best — the agents converge on salient defects rather than
     # observing independently — so it breaks ties between equally confident
     # findings rather than overriding a more confident one.
-    surviving = [f for f in findings if f.confidence >= min_confidence]
+    surviving = [
+        f
+        for f in findings
+        if f.confidence >= min_confidence and SEVERITY_RANK[f.severity] >= floor
+    ]
     withheld = len(findings) - len(surviving)
     surviving.sort(
         key=lambda f: (
