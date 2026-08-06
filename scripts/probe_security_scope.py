@@ -22,6 +22,16 @@ evaluating it backwards. `not expected` is true when the variable is unset, so t
 `or` short-circuits and the request is rejected. What is scored here is not whether
 the model comments on the code — advising "fail at startup instead" is defensible —
 but whether it calls correct code a *high* severity vulnerability.
+
+**whitelisted_order** — the same scoring question as sound_auth, but a different
+mistake, and keeping them apart is the point. Nothing is misread here: the reviewer
+read the `SORT_DIRECTIONS` check *correctly*, said so in the body, and filed high
+severity anyway on the grounds that the whitelist might be weakened in future. A
+sort direction cannot be bound as a parameter, so a checked interpolation is the
+correct implementation and there is no remedy to offer. Rating a hardening
+suggestion as a realised vulnerability is the defect; saying "consider X" at low is
+not. The `search_tasks` control is a genuine injection in the same hunk, so a run
+that flags nothing scores as a failure rather than a pass.
 """
 
 from __future__ import annotations
@@ -122,6 +132,24 @@ CASES = [
         ),
         note="Correct code. Comment on it if you like, but it is not a high-severity hole.",
     ),
+    Case(
+        name="whitelisted_order",
+        fixture="whitelisted_order.diff",
+        must_flag=(
+            Region("search_tasks (genuine injection — control)", range(67, 73), ("search_tasks",)),
+        ),
+        must_not_call_high=(
+            Region(
+                "list_tasks_sorted (whitelisted — correct)",
+                range(52, 65),
+                ("sort_directions", "list_tasks_sorted", "order by"),
+            ),
+        ),
+        note=(
+            "The control is a real injection, so 'not flagged at all' cannot pass by "
+            "the agent ignoring the file. Unlike sound_auth, nothing here is misread."
+        ),
+    ),
 ]
 
 
@@ -163,12 +191,52 @@ async def run_once(client: AsyncAnthropic, model: str, diff_text: str, max_token
     return findings, float(cost_of(call) or 0)
 
 
+def attribute(case: Case, findings: list[Finding]) -> dict[int, Region | None]:
+    """Assign each finding to at most one region, anchor first.
+
+    The keyword fallback exists because anchors drift, but a keyword is a word in
+    a body and bodies cite *other* functions: a correct high-severity finding on
+    `search_tasks` recommended "the pattern used in `list_tasks_sorted`", whose
+    name is a keyword of the region that must not be called high. Scored by
+    keyword alone that run failed on the strength of a finding about a different
+    function — the third time a probe in this project has answered a question it
+    was not asked.
+
+    So an anchor inside *any* region settles it and the keywords are never
+    consulted; keywords decide only for findings that land outside every region,
+    and a keyword hit on two regions at once is reported rather than guessed.
+    """
+    regions = [*case.must_flag, *case.must_not_call_high]
+    assigned: dict[int, Region | None] = {}
+
+    for finding in findings:
+        anchored = [r for r in regions if finding.line is not None and finding.line in r.lines]
+        if anchored:
+            assigned[id(finding)] = anchored[0]
+            continue
+        keyed = [r for r in regions if r.matches(finding)]
+        assigned[id(finding)] = keyed[0] if len(keyed) == 1 else None
+
+    return assigned
+
+
 def score_run(case: Case, findings: list[Finding]) -> tuple[bool, list[str]]:
     notes: list[str] = []
     ok = True
+    owner = attribute(case, findings)
+
+    regions = [*case.must_flag, *case.must_not_call_high]
+    ambiguous = [
+        f for f in findings if owner[id(f)] is None and any(r.matches(f) for r in regions)
+    ]
+    for finding in ambiguous:
+        notes.append(
+            f"  {YELLOW}ambiguous{RESET} {finding.file}:{finding.line} {finding.title} "
+            f"{DIM}(matched several regions by keyword; not scored){RESET}"
+        )
 
     for region in case.must_flag:
-        hits = [f for f in findings if region.matches(f)]
+        hits = [f for f in findings if owner[id(f)] is region]
         if hits:
             notes.append(f"  {GREEN}flagged{RESET}   {region.label} ({len(hits)})")
         else:
@@ -176,8 +244,9 @@ def score_run(case: Case, findings: list[Finding]) -> tuple[bool, list[str]]:
             notes.append(f"  {RED}MISSED{RESET}    {region.label}")
 
     for region in case.must_not_call_high:
-        highs = [f for f in findings if region.matches(f) and f.severity == "high"]
-        others = [f for f in findings if region.matches(f) and f.severity != "high"]
+        mine = [f for f in findings if owner[id(f)] is region]
+        highs = [f for f in mine if f.severity == "high"]
+        others = [f for f in mine if f.severity != "high"]
         if highs:
             ok = False
             notes.append(f"  {RED}HIGH{RESET}      {region.label} — {highs[0].title}")
