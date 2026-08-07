@@ -62,7 +62,7 @@ def test_every_case_is_a_valid_finding(case) -> None:
     a `MergedFinding` would be scored against a shape the critic never sees."""
     finding = MergedFinding(**case["finding"])
 
-    assert case["expect"] in {"survives", "loses_high"}
+    assert case["expect"] in {"survives", "loses_high", "refuted"}
     assert case["why"].strip(), f"{case['id']} has no stated reason"
     assert finding.sources, f"{case['id']} names no lane, and the lane is the signal"
 

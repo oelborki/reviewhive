@@ -1,0 +1,137 @@
+diff --git a/app/share.py b/app/share.py
+new file mode 100644
+index 0000000..279d2da
+--- /dev/null
++++ b/app/share.py
+@@ -0,0 +1,66 @@
++"""Shareable task links."""
++
++from __future__ import annotations
++
++import hmac
++import os
++from hashlib import sha256
++from urllib.parse import urlencode
++
++BASE_URL = "https://tasks.example.com/s"
++MAX_SHARE_DAYS = 30
++
++
++def signing_key() -> bytes:
++    """Return the key used to sign share links.
++
++    Read from the environment at call time rather than at import, so a rotated
++    value takes effect without a restart and importing this module never fails.
++
++    Raises:
++        RuntimeError: If ``SHARE_SECRET`` is unset or empty.
++    """
++    secret = os.environ.get("SHARE_SECRET", "")
++    if not secret:
++        raise RuntimeError("SHARE_SECRET is not configured")
++    return secret.encode()
++
++
++def sign(task_id: int, owner: str, days: int) -> str:
++    """Return the HMAC-SHA256 signature covering one link's parameters.
++
++    Args:
++        task_id: The task being shared.
++        owner: The account the task belongs to.
++        days: How long the link stays valid.
++
++    Returns:
++        The signature as a hex string. Every parameter above is covered, so a
++        link edited to point at another task no longer verifies.
++    """
++    payload = f"{task_id}:{owner}:{days}"
++    return hmac.new(signing_key(), payload.encode(), sha256).hexdigest()
++
++
++def make_link(task_id: int, owner: str, days: int) -> str:
++    """Build a signed link granting temporary access to one task.
++
++    Args:
++        task_id: The task being shared.
++        owner: The account the task belongs to.
++        days: How long the link stays valid, from 1 to ``MAX_SHARE_DAYS``.
++
++    Returns:
++        An absolute URL whose query string carries the signature.
++
++    Raises:
++        ValueError: If ``days`` is outside the supported range.
++        RuntimeError: If the signing secret is not configured.
++    """
++    if not 1 <= days <= MAX_SHARE_DAYS:
++        raise ValueError(f"days must be between 1 and {MAX_SHARE_DAYS}")
++
++    query = urlencode(
++        {"owner": owner, "days": days, "sig": sign(task_id, owner, days)}
++    )
++    return f"{BASE_URL}/{task_id}?{query}"
+diff --git a/tests/test_share.py b/tests/test_share.py
+new file mode 100644
+index 0000000..aea4230
+--- /dev/null
++++ b/tests/test_share.py
+@@ -0,0 +1,59 @@
++"""Tests for shareable task links."""
++
++from __future__ import annotations
++
++import pytest
++
++from app.share import MAX_SHARE_DAYS, make_link, sign, signing_key
++
++
++@pytest.fixture(autouse=True)
++def secret(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("SHARE_SECRET", "test-key")
++
++
++def test_the_link_carries_the_task_owner_and_duration() -> None:
++    link = make_link(7, "ana", 3)
++
++    assert link.startswith("https://tasks.example.com/s/7?")
++    assert "owner=ana" in link
++    assert "days=3" in link
++
++
++def test_the_signature_is_stable_for_the_same_parameters() -> None:
++    assert sign(7, "ana", 3) == sign(7, "ana", 3)
++
++
++@pytest.mark.parametrize(
++    "task_id, owner, days", [(8, "ana", 3), (7, "bo", 3), (7, "ana", 4)]
++)
++def test_changing_any_parameter_changes_the_signature(
++    task_id: int, owner: str, days: int
++) -> None:
++    assert sign(task_id, owner, days) != sign(7, "ana", 3)
++
++
++def test_an_owner_needing_escaping_does_not_break_the_query() -> None:
++    link = make_link(7, "a n&a", 3)
++
++    assert "owner=a+n%26a" in link
++
++
++@pytest.mark.parametrize("days", [0, -1, MAX_SHARE_DAYS + 1])
++def test_a_duration_outside_the_range_is_rejected(days: int) -> None:
++    with pytest.raises(ValueError, match="between 1 and"):
++        make_link(7, "ana", days)
++
++
++def test_the_range_boundaries_are_allowed() -> None:
++    assert make_link(7, "ana", 1)
++    assert make_link(7, "ana", MAX_SHARE_DAYS)
++
++
++def test_a_missing_secret_is_refused_rather_than_signed_with_nothing(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.delenv("SHARE_SECRET", raising=False)
++
++    with pytest.raises(RuntimeError, match="not configured"):
++        signing_key()

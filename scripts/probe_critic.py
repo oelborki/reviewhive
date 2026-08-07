@@ -65,31 +65,38 @@ def load_cases(only: str | None) -> list[dict]:
 
 
 def build(cases: list[dict]) -> tuple[list[MergedFinding], list[DiffFile]]:
-    """One finding and one diff file per case, each under its own path prefix.
+    """One finding per case, and one diff file per (fixture, path) pair.
 
-    The prefix is not decoration. Three of the fixtures contain a file called
-    `app/main.py`, and two cases sit on the same line of it -- so without a prefix
-    they would resolve to each other's windows and the run would score verdicts
-    about the wrong code. `probe_merge.py` learned this the expensive way: its first
-    version put every case in one flat list, findings from unrelated cases became
-    candidates for each other, and it reported failures for cases it had never asked
-    about.
+    **Prefixed by fixture, not by case.** Three fixtures contain a file called
+    `app/main.py` and two cases sit on the same line of one, so without a prefix
+    they resolve to each other's code and the run scores verdicts about the wrong
+    thing. `probe_merge.py` learned that the expensive way.
+
+    But prefixing by *case* is wrong in the other direction, and it flattered the
+    score by 13/13 the first time it was tried: the pass asks one question per file,
+    so a unique prefix per case gives every finding a private call, which is the
+    isolated condition and not the one a review runs. Findings that would share a
+    file in production have to share one here, or the probe measures a pipeline
+    nobody uses.
     """
     findings: list[MergedFinding] = []
-    files: list[DiffFile] = []
+    files: dict[str, DiffFile] = {}
 
-    for number, case in enumerate(cases):
+    for case in cases:
         raw = case["finding"]
-        prefix = f"case{number}"
-        parsed = parse_diff((DIFFS / case["fixture"]).read_text(encoding="utf-8"))
-        source = next((f for f in parsed.files if f.path == raw["file"]), None)
-        if source is None:
-            sys.exit(f"{case['id']}: {raw['file']} is not in {case['fixture']}")
+        prefix = Path(case["fixture"]).stem
+        path = f"{prefix}/{raw['file']}"
 
-        files.append(replace(source, path=f"{prefix}/{raw['file']}"))
-        findings.append(MergedFinding(**{**raw, "file": f"{prefix}/{raw['file']}"}))
+        if path not in files:
+            parsed = parse_diff((DIFFS / case["fixture"]).read_text(encoding="utf-8"))
+            source = next((f for f in parsed.files if f.path == raw["file"]), None)
+            if source is None:
+                sys.exit(f"{case['id']}: {raw['file']} is not in {case['fixture']}")
+            files[path] = replace(source, path=path)
 
-    return findings, files
+        findings.append(MergedFinding(**{**raw, "file": path}))
+
+    return findings, list(files.values())
 
 
 def check_fidelity(cases, findings, files, settings) -> bool:
@@ -98,15 +105,10 @@ def check_fidelity(cases, findings, files, settings) -> bool:
     A probe that cannot prove it asked the right question is worse than no probe.
     Three instances on record, one of which scored 1/4 and 4/4 on the same prompt.
     """
-    windows = judgeable(
-        findings,
-        files,
-        radius=settings.critic_context_radius,
-        max_findings=len(findings) + 1,
-    )
+    judged = judgeable(findings, files, max_findings=len(findings) + 1)
 
-    missing = [cases[i]["id"] for i in range(len(cases)) if i not in windows]
-    stray = [i for i in windows if i >= len(cases)]
+    missing = [cases[i]["id"] for i in range(len(cases)) if i not in judged]
+    stray = [i for i in judged if i >= len(cases)]
     if not missing and not stray:
         return True
 
@@ -138,11 +140,13 @@ async def run(cases: list[dict]):
     outcome = await review_findings(client, settings, findings, files)
     await client.close()
 
-    survivors = {f.file: f for f in outcome.findings}
-    results = []
-    for index, case in enumerate(cases):
-        survivor = survivors.get(findings[index].file)
-        results.append((case, survivor, outcome.honoured.get(index)))
+    # Straight from the pass, keyed by the index each finding went in under. Matching
+    # by file path scored two cases against one finding the moment they shared a
+    # file, and matching on any field an amendment can rewrite has the same problem.
+    results = [
+        (case, outcome.survivors.get(index, findings[index]), outcome.honoured.get(index))
+        for index, case in enumerate(cases)
+    ]
 
     return results, outcome
 
@@ -150,13 +154,20 @@ async def run(cases: list[dict]):
 def passed(case: dict, survivor: MergedFinding | None) -> bool:
     """What the review would actually show, rather than what the model said.
 
-    `survives` is not dropped and not downgraded. Rewriting a title or body is
-    allowed: those are the amendments the pass exists to make and none of them
-    destroys anything.
+    - `survives`: not dropped and not downgraded. Rewriting a title or body is
+      allowed — those are the amendments the pass exists to make, and none of them
+      destroys anything.
+    - `loses_high`: dropped, or kept below high. Which of the two is right is left
+      open on purpose; for a claim that overstates a real weakness, lowering it is
+      the better answer and deleting it is also defensible.
+    - `refuted`: the claim is false and must not stand as written. Either an
+      amendment or a withdrawal passes; leaving it untouched does not.
     """
     original = case["finding"]["severity"]
     if case["expect"] == "survives":
         return survivor is not None and survivor.severity == original
+    if case["expect"] == "refuted":
+        return survivor is None or survivor.amended
     return survivor is None or survivor.severity != "high"
 
 
@@ -175,6 +186,7 @@ def report(results, outcome, show_reasons: bool) -> None:
     groups = (
         ("must survive untouched", [r for r in results if r[0]["expect"] == "survives"]),
         ("must not stand at high", [r for r in results if r[0]["expect"] == "loses_high"]),
+        ("must not stand as written", [r for r in results if r[0]["expect"] == "refuted"]),
     )
 
     for label, group in groups:

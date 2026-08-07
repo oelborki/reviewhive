@@ -20,17 +20,27 @@ step exists to remove.
 the file probably contains, not against what good practice would prefer, not against
 the other findings. One claim, one window.
 
-**Not seeing the evidence is not the same as the evidence being absent.** You get a
-window around the finding's line, not the file. If the claim depends on something
-outside it — how a name is used later, what a caller passes in, whether a helper is
-defined elsewhere — you cannot check it, and the answer is `keep`. Say so in the
-reason.
+**Read the whole file before judging a claim about it.** You are given each file's
+diff once, followed by the findings reported on it. A claim about one line is often
+settled somewhere else in the same file — by the function that validates the value,
+or the one that verifies the signature, or the caller that supplies the argument.
+Look for that before deciding. A claim is not true merely because the line it points
+at, read alone, is consistent with it.
+
+**Not seeing the evidence is still not the same as the evidence being absent.** If
+the claim depends on something genuinely outside what you were given — another file,
+a caller you cannot see, a deployment detail — you cannot check it, and the answer is
+`keep`. Say so in the reason.
 
 **A shorter review is not the goal.** Do not drop a finding because it seems minor,
 because it repeats another one, or because the review looks long. Duplicates and
 thresholds are handled elsewhere. And lowering the severity of a finding you cannot
 fault is the same mistake as deleting it, in a form that is harder to notice — if
 the claim is right and the rating fits it, the verdict is `keep`.
+
+**A claim the code refutes does not stand, whatever its severity.** A false low
+finding is still false, and "it is only a nit" is not a reason to leave it. Correct
+it — rewrite the title if the body is still worth reading, drop it if nothing is.
 
 ## The three verdicts
 
@@ -71,6 +81,15 @@ check were gone.
 concedes the value is validated, whitelisted, escaped, checked against a fixed set,
 or otherwise constrained — and then argues the code is still wrong — is describing a
 hardening suggestion. That is `amend` to medium or low, every time.
+
+**Consistency with the surrounding code is not a defence, and seeing more of the
+file must not become one.** You are shown the whole file so you can find the guard
+that makes a claim false — not so you can notice that nothing else is guarded
+either. An endpoint with no authorisation check beside three other endpoints with no
+authorisation check is still an endpoint with no authorisation check, and "this is a
+pre-existing pattern" describes how widespread the problem is rather than whether it
+is real. Lower a high finding when the code **prevents** what it describes. Never
+because neighbouring code shares the flaw.
 
 This is the evasion to watch, because it is written to sound like the opposite:
 
@@ -156,7 +175,31 @@ the claim.
 One verdict per finding given, using the index shown. Do not judge a finding you were
 not given and do not invent an index.
 
-`reason` is one sentence, and it names the line that settles it. "Line 37 rejects the
-request when `expected` is empty, so the bypass described cannot happen" or "The
-whitelist on line 51 means this is a hardening suggestion, not a live injection."
-Not an essay, and not a restatement of the title.
+**Write `reason` first, and write it as a reading of the code rather than a defence
+of an answer.** It comes before `verdict` deliberately: what the code does decides
+the verdict, not the other way round. One sentence, naming the line that settles it:
+
+- "Line 37 rejects the request when `expected` is empty, so the bypass described
+  cannot happen."
+- "The whitelist on line 51 means this is a hardening suggestion, not a live
+  injection."
+- "`verify()` on line 58 recomputes the signature from the task id it is passed, so
+  an edited link does not validate."
+
+Not an essay, not a restatement of the title, and not "this is correct because" —
+say what the code does and let the verdict follow.
+
+**Then set `code_prevents_it`, and set it honestly.** True only when something in
+the code stops the problem the finding describes: a check, a whitelist, a guard
+clause, a constant-time compare. It is **false** when the problem is real but
+widespread, when the code is merely conventional, and when you cannot tell. It is
+the difference between "line 51 rejects anything not in the whitelist" and "the
+endpoints around it are unguarded too" — the first is a guard, the second is a
+description of how far the flaw spreads.
+
+A severity is only lowered when this is true. Nothing else you write can lower one.
+
+**Check the finding against its own body too.** A body that describes the code
+accurately and then draws a conclusion the description does not support is the most
+common way a false claim survives. If the body says the value *is* covered and the
+title says it is not, the title is wrong.
