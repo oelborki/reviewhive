@@ -76,17 +76,30 @@ def test_every_finding_anchors_to_a_real_line_in_its_fixture(case) -> None:
     assert window, f"{case['id']}: no window at line {case['finding']['line']}"
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c["id"])
-def test_the_window_contains_the_evidence_the_verdict_needs(case) -> None:
-    """The fairness check. `loses_high` says the critic should have known better,
-    and that is only true if the thing it should have known is in front of it."""
-    required = EVIDENCE.get(case["id"])
-    if required is None:
-        pytest.skip("verdict does not turn on a specific line")
+def test_every_evidence_entry_names_a_real_case() -> None:
+    """Without this, a typo in an `EVIDENCE` key silently drops a fairness check
+    and the suite still passes. The test below parametrizes over `EVIDENCE`, so a
+    key that matches nothing would simply not be asserted about."""
+    known = {case["id"] for case in CASES}
 
+    assert set(EVIDENCE) <= known, f"unknown case ids: {set(EVIDENCE) - known}"
+
+
+@pytest.mark.parametrize("case_id", sorted(EVIDENCE), ids=lambda i: i)
+def test_the_window_contains_the_evidence_the_verdict_needs(case_id) -> None:
+    """The fairness check. `loses_high` says the critic should have known better,
+    and that is only true if the thing it should have known is in front of it.
+
+    Parametrized over `EVIDENCE` rather than over every case and skipped where it
+    does not apply: CI fails the offline job on *any* skip, because a skip there
+    normally means an extra is missing and half the suite quietly did not run. A
+    deliberate skip would spend that tripwire.
+    """
+    case = next(c for c in CASES if c["id"] == case_id)
     window = _window(case)
-    for fragment in required:
-        assert fragment in window, f"{case['id']} window is missing {fragment!r}"
+
+    for fragment in EVIDENCE[case_id]:
+        assert fragment in window, f"{case_id} window is missing {fragment!r}"
 
 
 def test_deleting_everything_scores_badly() -> None:
