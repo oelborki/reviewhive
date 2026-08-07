@@ -34,6 +34,15 @@ class DiffHunk:
     added_lines: frozenset[int]
     context_lines: frozenset[int]
     removed_lines: frozenset[int]
+    # The same rendering as `numbered_text`, kept line by line with the new-file
+    # number beside each. `numbered_text` is what the model is shown; this is what
+    # anything needing a *part* of it slices, so no second reader has to parse the
+    # gutter back out of the string. Both are built from one list in `_to_hunk`,
+    # and `test_numbered_lines_reassemble_numbered_text` pins that they agree.
+    #
+    # A line with no position in the new file — a removed line, or the `@@` header —
+    # carries `None`, exactly as the gutter carries blanks for it.
+    numbered_lines: tuple[tuple[int | None, str], ...] = ()
 
     @property
     def line_count(self) -> int:
@@ -159,6 +168,48 @@ class DiffFile:
                 return min(nearby, key=lambda n: (abs(n - line), n))
         return None
 
+    def window(self, line: int, radius: int = 6) -> str:
+        """The numbered diff around `line`, for showing a claim its own evidence.
+
+        The reviewers get the whole diff; anything *checking* one of their claims
+        needs only the lines that claim is about. Every measured false positive has
+        the same shape — a compound condition quoted correctly and then evaluated
+        backwards — so a handful of lines either settles it or does not, and sending
+        the whole file to settle one line is a reviewer's budget spent on a reader's
+        job.
+
+        Two properties matter more than the size of the window:
+
+        **Contiguity.** The slice runs from the first in-range line to the last,
+        so removed lines and blank-gutter lines *between* them are kept. A condition
+        split across a removed line and its replacement has to read as it was
+        written; filtering strictly on the number would silently drop the half with
+        no new-file position.
+
+        **No silent joins.** Two hunks contributing to one window are not adjacent
+        code, and glueing them together would invent a control flow nobody wrote.
+        A gap marker separates them, in the same shape `_assemble` uses for the
+        hunks a budget drops.
+
+        Returns "" when the line reaches nothing — the caller decides whether that
+        means "judge it without evidence" or "leave it alone".
+        """
+        low, high = line - radius, line + radius
+        segments: list[str] = []
+
+        for hunk in self.hunks:
+            in_range = [
+                index
+                for index, (number, _) in enumerate(hunk.numbered_lines)
+                if number is not None and low <= number <= high
+            ]
+            if not in_range:
+                continue
+            span = hunk.numbered_lines[min(in_range) : max(in_range) + 1]
+            segments.append("".join(text for _, text in span))
+
+        return "\n[reviewHive: lines omitted]\n".join(segments)
+
 
 @dataclass
 class ParsedDiff:
@@ -237,7 +288,11 @@ def _to_hunk(hunk) -> DiffHunk:
     # construction the numbers it is allowed to report. Deriving them separately
     # would let the two drift.
     rendered = str(hunk).splitlines(keepends=True)
-    numbered = [rendered[0]] if rendered else []
+    # (new-file line number, rendered text). The `@@` header has no position in the
+    # new file and so carries None, like a removed line. `numbered_text` is joined
+    # from this same list below, so a slice of it and the whole of it can never
+    # disagree about what is on a line.
+    numbered: list[tuple[int | None, str]] = [(None, rendered[0])] if rendered else []
 
     for line in hunk:
         if line.is_added and line.target_line_no is not None:
@@ -250,14 +305,15 @@ def _to_hunk(hunk) -> DiffHunk:
         # A removed line has no position in the new file, so it gets no number and
         # cannot be reported as an anchor.
         gutter = f"{line.target_line_no:>5} " if line.target_line_no is not None else " " * 6
-        numbered.append(gutter + str(line))
+        numbered.append((line.target_line_no, gutter + str(line)))
 
     return DiffHunk(
         text=str(hunk),
-        numbered_text="".join(numbered),
+        numbered_text="".join(text for _, text in numbered),
         added_lines=frozenset(added),
         context_lines=frozenset(context),
         removed_lines=frozenset(removed),
+        numbered_lines=tuple(numbered),
     )
 
 
