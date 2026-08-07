@@ -18,6 +18,7 @@ from reviewhive.anchors import anchor_findings
 from reviewhive.config import Settings
 from reviewhive.diff.budget import build_budget
 from reviewhive.diff.parser import parse_diff
+from reviewhive.graph.critic import review_findings
 from reviewhive.graph.dedupe import collapse, rank_and_cut
 from reviewhive.graph.llm_merge import merge_findings
 from reviewhive.graph.state import ReviewState
@@ -89,12 +90,29 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
             "dropped %d findings naming files outside the diff", len(anchored.dropped_files)
         )
 
-    # After anchoring, so no tokens are spent on findings about to be dropped for
-    # naming a file outside the diff, and so the pass compares snapped lines rather
-    # than the ones the models reported. Before ranking, so a merge frees a slot
-    # under `max_posted_findings` instead of arriving too late to matter.
     calls = state.get("calls", [])
     findings = anchored.findings
+    retracted = 0
+
+    # Before the merge pass, and that ordering is load-bearing. `dedupe._merge`
+    # takes `max(severity)` across members and unions `sources`, so once a poached
+    # finding has collapsed into the one it copied, the review holds a single
+    # high-severity finding sourced by two lanes: the per-lane severities are gone
+    # and the lane that poached is no longer distinguishable. After the merge there
+    # is nothing left to reconcile.
+    #
+    # After anchoring for the same reasons the merge pass is: no tokens spent on
+    # findings about to be dropped for naming a file outside the diff, and the lines
+    # judged are the snapped ones rather than the ones the models reported.
+    if settings.enable_critic:
+        findings, retracted, critic_call = await review_findings(
+            deps.client, settings, findings, budget.files if budget else []
+        )
+        if critic_call is not None:
+            calls = [*calls, critic_call]
+
+    # Before ranking, so a merge frees a slot under `max_posted_findings` instead of
+    # arriving too late to matter.
     if settings.enable_llm_merge:
         findings, merge_call = await merge_findings(deps.client, settings, findings)
         if merge_call is not None:
@@ -108,12 +126,13 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
     )
 
     logger.info(
-        "finalized: %d raw -> %d merged -> %d after merge pass -> %d posted "
-        "(%d suppressed, %d snapped)",
+        "finalized: %d raw -> %d merged -> %d after critic and merge passes -> %d posted "
+        "(%d retracted, %d suppressed, %d snapped)",
         len(raw),
         len(merged),
         len(findings),
         len(kept),
+        retracted,
         suppressed,
         anchored.snapped,
     )
@@ -122,6 +141,7 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
         "result": ReviewResult(
             findings=kept,
             suppressed_count=suppressed,
+            retracted_count=retracted,
             skipped_files=budget.skipped if budget else [],
             truncated_files=budget.truncated if budget else [],
             calls=calls,

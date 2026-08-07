@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     # already set `merge_line_window` to 8: a finding anchored at a signature and the
     # line it is really about can be several apart.
     critic_context_radius: int = 10
+    # On. The pass costs one cheap call to check each finding against the lines it
+    # is about. Turning it off is a supported way to save that call; the review is
+    # then exactly what it was before the pass existed.
+    enable_critic: bool = True
+    # A cost guard, not a correctness one. A defect-dense diff can produce twenty-
+    # five findings before ranking, and each one carries a window.
+    critic_max_findings: int = 30
 
     # --- Agent call behaviour ---
     agent_max_tokens: int = 8_000

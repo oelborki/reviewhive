@@ -96,6 +96,32 @@ class TestSummary:
         assert "Nothing found above the reporting threshold." in summary
         assert "4 further finding(s) not shown" in summary
 
+    def test_a_retraction_is_disclosed(self) -> None:
+        """The only thing that makes an over-eager critic visible on a real pull
+        request. A pass that deletes too much and says nothing looks exactly like a
+        diff nobody had anything to say about."""
+        summary = render_summary(result(retracted_count=2))
+
+        assert "2 finding(s) withdrawn on review" in summary
+
+    def test_a_retraction_is_counted_apart_from_suppression(self) -> None:
+        """Two different claims. A suppressed finding is one this review stands
+        behind and had no room for; a retracted one is a claim it checked and
+        withdrew. One total could not tell a reader which had happened."""
+        summary = render_summary(result(suppressed_count=3, retracted_count=2))
+
+        assert "3 further finding(s) not shown" in summary
+        assert "2 finding(s) withdrawn on review" in summary
+
+    def test_a_retracted_review_may_still_call_itself_clean(self) -> None:
+        """Unlike suppression. A threshold withholds findings the review stands
+        behind, so a clean verdict over the top of it overstates; a retraction is a
+        claim the review withdrew, and "no issues found" is then what it means."""
+        summary = render_summary(result(findings=[], retracted_count=3))
+
+        assert "No issues found." in summary
+        assert "3 finding(s) withdrawn on review" in summary
+
     def test_a_filtered_review_with_skips_qualifies_on_both_counts(self) -> None:
         summary = render_summary(
             result(findings=[], suppressed_count=2, skipped_files=["huge.py (binary)"])

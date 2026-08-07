@@ -52,9 +52,32 @@ class TestThroughTheGraph:
 
         await review_diff(diff_text, client, settings, focus="the auth changes")
 
-        assert len(client.parse_calls) == 3
-        for prompt in client.user_messages:
+        reviewed = [
+            message
+            for call, message in zip(client.parse_calls, client.user_messages, strict=True)
+            if call in {"security", "style", "architecture"}
+        ]
+
+        assert len(reviewed) == 3
+        for prompt in reviewed:
             assert "the auth changes" in prompt
+
+    async def test_the_critic_is_not_given_the_focus(self, diff_text, settings) -> None:
+        """Focus narrows what is worth *looking for*, and the critic is not looking
+        for anything. It checks a claim someone else made against the lines that
+        claim names, and a finding is no less true for falling outside the focus."""
+        client = StubAnthropic(responses={"security": [finding()]})
+
+        await review_diff(diff_text, client, settings, focus="the auth changes")
+
+        judged = [
+            message
+            for call, message in zip(client.parse_calls, client.user_messages, strict=True)
+            if call == "CriticVerdicts"
+        ]
+
+        assert judged, "the critic should have been asked about the finding"
+        assert "the auth changes" not in judged[0]
 
     async def test_an_unfocused_run_is_unchanged(self, diff_text, settings) -> None:
         client = StubAnthropic(responses={"security": [finding()]})
