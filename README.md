@@ -6,9 +6,9 @@ the result is posted as a single review.
 
 > **Status: Phase 4 of 5.** Open a pull request on a configured repository and a
 > review with inline comments appears; mention the bot in a comment and it answers.
-> Runs are persisted to Postgres, an LLM merge pass collapses the cross-lane
-> duplicates title matching cannot see, and `docker compose up` runs the whole
-> thing. Remaining: a temporary public deployment and a demo recording — see
+> Runs are persisted to Postgres, a critic pass checks each finding against the
+> lines it is about, an LLM merge pass collapses the cross-lane duplicates title
+> matching cannot see, and `docker compose up` runs the whole thing. Remaining: a temporary public deployment and a demo recording — see
 > [Roadmap](#roadmap).
 
 ## How it works
@@ -22,7 +22,8 @@ the result is posted as a single review.
       security    style    architecture
           └─────────┼─────────┘
              ┌──────▼───────┐
-             │   finalize   │  deduplicate · validate line anchors · rank · cap
+             │   finalize   │  deduplicate · validate anchors · check claims ·
+             │              │  merge cross-lane duplicates · rank · cap
              └──────┬───────┘
                     ▼
               ReviewResult
@@ -49,6 +50,31 @@ than assuming it.
 lines of each other, whose titles overlap above a threshold, collapse into one
 finding that records which agents raised it. Only the residue that co-locates but
 does not textually match is left alone for now.
+
+**A critic pass then checks each finding against the lines it is about.** Nothing
+before it asks whether a finding is *correct*, and two measured defects follow from
+that. A reviewer writing outside its specialty rates the finding it borrowed higher
+than the specialist who owns it — on one pull request the architecture agent filed a
+whitelisted `ORDER BY` as high-severity SQL injection while the security agent, which
+is right about that code in twelve runs of thirteen, filed it as medium, and the
+reader saw the high one. Neither threshold separates those: the borrowed findings
+carry high confidence *because* the vulnerabilities they copy are real, and they rate
+higher rather than lower. Separately, every false positive measured so far has one
+shape — a compound condition quoted correctly and then evaluated backwards.
+
+So the pass gets each finding together with a window of the diff around its anchor,
+and may lower its severity, rewrite it, or withdraw it. It cannot raise a severity,
+act on a finding it was not shown, or judge one twice; those are refused in code
+rather than requested in the prompt, because a prompt is a request and these are
+guarantees. Withdrawals are counted and disclosed in the posted summary, separately
+from the threshold count — an over-eager critic is otherwise invisible.
+
+It runs *before* the merge pass. Merging keeps the higher of two severities, so
+afterwards the borrowed rating and the specialist's are one number and there is
+nothing left to reconcile. Scored against ten findings taken from the `findings`
+table, 10/10 across five runs; seven of the ten must survive untouched, so a critic
+that deletes everything scores 3/10. Measured at $0.0126, and
+`REVIEWHIVE_ENABLE_CRITIC=false` turns it off.
 
 **An LLM merge pass then takes the residue**, and it was deliberately built last.
 It is the one piece here with no objective success criterion — the point at which
@@ -412,9 +438,13 @@ with an `httpx.MockTransport` standing in for GitHub. Only the endpoint tests ne
 the `service` extra, and they skip rather than fail without it.
 
 What the offline suite deliberately cannot tell you is whether a *prompt* works.
-That is what `scripts/probe_agent.py`, `probe_intent.py` and `probe_mention.py` are
-for: each runs one thing against real phrasings and scores itself, so a prompt
-change shows which readings moved rather than whether the pipeline still runs.
+That is what `scripts/probe_agent.py`, `probe_intent.py`, `probe_mention.py`,
+`probe_merge.py` and `probe_critic.py` are for: each runs one thing against real
+phrasings and scores itself, so a prompt change shows which readings moved rather
+than whether the pipeline still runs. The two that judge other findings score
+themselves against cases taken from the `findings` table, weighted so that the
+destructive failure — a merge or a deletion that loses a real finding — costs more
+than the harmless one.
 
 The `db`-marked tests are the exception and are deselected by default. They build
 their schema by running the migration rather than `create_all()`, so the migration
