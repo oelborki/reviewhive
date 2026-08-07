@@ -1,0 +1,64 @@
+diff --git a/app/formatting.py b/app/formatting.py
+new file mode 100644
+index 0000000..f259b1b
+--- /dev/null
++++ b/app/formatting.py
+@@ -0,0 +1,26 @@
++"""Human-readable summaries of task counts."""
++
++from __future__ import annotations
++
++
++def summarize_counts(done: int, pending: int) -> str:
++    """Describe a task list in one line.
++
++    Args:
++        done: Number of completed tasks. Must not be negative.
++        pending: Number of outstanding tasks. Must not be negative.
++
++    Returns:
++        A sentence such as "3 done, 1 pending" — or "Nothing here yet."
++        when both counts are zero.
++
++    Raises:
++        ValueError: If either count is negative.
++    """
++    if done < 0 or pending < 0:
++        raise ValueError("task counts cannot be negative")
++
++    if done == 0 and pending == 0:
++        return "Nothing here yet."
++
++    return f"{done} done, {pending} pending"
+diff --git a/tests/test_formatting.py b/tests/test_formatting.py
+new file mode 100644
+index 0000000..4be0226
+--- /dev/null
++++ b/tests/test_formatting.py
+@@ -0,0 +1,26 @@
++"""Tests for the task count summary."""
++
++from __future__ import annotations
++
++import pytest
++
++from app.formatting import summarize_counts
++
++
++def test_reports_both_counts() -> None:
++    assert summarize_counts(3, 1) == "3 done, 1 pending"
++
++
++def test_an_empty_list_reads_as_empty() -> None:
++    assert summarize_counts(0, 0) == "Nothing here yet."
++
++
++def test_zero_in_one_column_is_still_reported() -> None:
++    assert summarize_counts(0, 2) == "0 done, 2 pending"
++    assert summarize_counts(2, 0) == "2 done, 0 pending"
++
++
++@pytest.mark.parametrize("done, pending", [(-1, 0), (0, -1)])
++def test_negative_counts_are_rejected(done: int, pending: int) -> None:
++    with pytest.raises(ValueError, match="cannot be negative"):
++        summarize_counts(done, pending)
