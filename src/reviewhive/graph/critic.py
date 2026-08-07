@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Literal
 
 from anthropic import APIError, AsyncAnthropic
@@ -98,6 +99,23 @@ class CriticVerdicts(BaseModel):
     verdicts: list[CriticVerdict]
 
 
+@dataclass
+class CriticOutcome:
+    """What one critic pass produced, in the shape `AgentOutcome` already uses.
+
+    `honoured` carries the verdicts that survived the refusals below, keyed by the
+    index of the finding they were about. The graph ignores it; `probe_critic.py`
+    needs it, and having the probe reconstruct verdicts by comparing findings before
+    and after would be a second implementation of this module's rules — which is the
+    probe-fidelity failure this project has already paid for three times.
+    """
+
+    findings: list[MergedFinding]
+    retracted: int = 0
+    honoured: dict[int, CriticVerdict] = field(default_factory=dict)
+    call: AgentCall | None = None
+
+
 def judgeable(
     findings: list[MergedFinding],
     files: list[DiffFile],
@@ -143,12 +161,12 @@ async def review_findings(
     settings: Settings,
     findings: list[MergedFinding],
     files: list[DiffFile],
-) -> tuple[list[MergedFinding], int, AgentCall | None]:
+) -> CriticOutcome:
     """Check each finding against its own lines. Never raises.
 
-    Returns the surviving findings, how many were retracted, and the call it cost —
-    or `(findings, 0, None)` when there was nothing judgeable, since an empty
-    question costs nothing and is not worth a row.
+    An outcome carrying no call means there was nothing judgeable: an empty question
+    costs nothing and is not worth a row. Every other failure returns the findings
+    exactly as they arrived, with the call recording why.
     """
     windows = judgeable(
         findings,
@@ -157,7 +175,7 @@ async def review_findings(
         max_findings=settings.critic_max_findings,
     )
     if not windows:
-        return findings, 0, None
+        return CriticOutcome(findings=findings)
 
     started = time.perf_counter()
     call = AgentCall(agent="critic", model=settings.agent_model, input_tokens=0, output_tokens=0)
@@ -175,7 +193,7 @@ async def review_findings(
         logger.warning("critic pass failed: %s", exc)
         call.error = f"{type(exc).__name__}: {exc}"
         call.latency_ms = _elapsed_ms(started)
-        return findings, 0, call
+        return CriticOutcome(findings=findings, call=call)
 
     call.latency_ms = _elapsed_ms(started)
     call.input_tokens = message.usage.input_tokens
@@ -186,7 +204,7 @@ async def review_findings(
     if verdicts is None or message.stop_reason == "refusal":
         call.error = f"unusable output (stop_reason={message.stop_reason})"
         logger.warning("critic pass returned nothing usable; findings left as they were")
-        return findings, 0, call
+        return CriticOutcome(findings=findings, call=call)
 
     if message.stop_reason == "max_tokens":
         # Truncated verdicts are still valid verdicts about the findings they cover.
@@ -194,7 +212,7 @@ async def review_findings(
         call.error = "truncated at max_tokens"
         logger.warning("critic pass hit max_tokens; some findings went unjudged")
 
-    kept, retracted, amended = _apply(findings, verdicts.verdicts, set(windows))
+    kept, retracted, amended, honoured = _apply(findings, verdicts.verdicts, set(windows))
     logger.info(
         "critic pass: %d of %d findings judged, %d amended, %d retracted",
         len(windows),
@@ -202,14 +220,14 @@ async def review_findings(
         amended,
         retracted,
     )
-    return kept, retracted, call
+    return CriticOutcome(findings=kept, retracted=retracted, honoured=honoured, call=call)
 
 
 def _apply(
     findings: list[MergedFinding],
     verdicts: list[CriticVerdict],
     asked: set[int],
-) -> tuple[list[MergedFinding], int, int]:
+) -> tuple[list[MergedFinding], int, int, dict[int, CriticVerdict]]:
     """Apply the verdicts that were asked for, refuse the rest.
 
     Three things are refused in code rather than in the prompt, because a prompt is
@@ -266,7 +284,7 @@ def _apply(
         amended += 1
         kept.append(finding.model_copy(update={**updates, "amended": True}))
 
-    return kept, retracted, amended
+    return kept, retracted, amended, seen
 
 
 def _amendments(finding: MergedFinding, verdict: CriticVerdict) -> dict[str, object]:

@@ -105,11 +105,12 @@ async def finalize(state: ReviewState, deps: Deps) -> ReviewState:
     # findings about to be dropped for naming a file outside the diff, and the lines
     # judged are the snapped ones rather than the ones the models reported.
     if settings.enable_critic:
-        findings, retracted, critic_call = await review_findings(
+        outcome = await review_findings(
             deps.client, settings, findings, budget.files if budget else []
         )
-        if critic_call is not None:
-            calls = [*calls, critic_call]
+        findings, retracted = outcome.findings, outcome.retracted
+        if outcome.call is not None:
+            calls = [*calls, outcome.call]
 
     # Before ranking, so a merge frees a slot under `max_posted_findings` instead of
     # arriving too late to matter.

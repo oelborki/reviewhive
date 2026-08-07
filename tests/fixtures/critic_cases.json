@@ -112,7 +112,7 @@
     {
       "id": "pr5_round2/main.py:7",
       "expect": "survives",
-      "why": "The discipline case. The title claims an unused import and `priority` is used at line 43 -- but that is 36 lines away and no window shows it. A critic that drops this is guessing, and the same guess deletes true findings elsewhere. Keep it; the body is a defensible style opinion anyway.",
+      "why": "The amend-rather-than-delete case. The title claims an unused import and it is false -- `priority.bulk_import` is called at line 43, and although that is 36 lines below this anchor it does appear in a neighbouring finding's window, so the critic can and does see it. The body is a different statement and a true one: the module is used in exactly one function. A finding whose title overreaches a body that still says something true is an amendment; deleting it throws away the observation to punish the headline.",
       "fixture": "pr5_round2.diff",
       "finding": {
         "file": "app/main.py",

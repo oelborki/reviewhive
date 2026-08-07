@@ -66,7 +66,8 @@ def verdicts(*items: CriticVerdict) -> dict:
 
 
 async def run(stub, settings, findings, files=FILES):
-    return await review_findings(stub, settings, findings, files)
+    outcome = await review_findings(stub, settings, findings, files)
+    return outcome.findings, outcome.retracted, outcome.call
 
 
 class TestJudgeable:

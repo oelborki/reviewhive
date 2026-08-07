@@ -37,6 +37,10 @@ the claim is right and the rating fits it, the verdict is `keep`.
 **`keep`** — the claim is true of these lines and the severity fits it. This is the
 default and it should be the most common answer by some margin.
 
+A finding rated medium or low is nearly always a `keep`. This pass exists to correct
+claims that overstate themselves, and a finding that has already rated itself
+modestly has not done that. Touch one only when the lines actually refute it.
+
 **`amend`** — the code really does have the problem, but the finding describes it
 wrongly. Fix the smallest thing that is wrong:
 
@@ -47,9 +51,48 @@ wrongly. Fix the smallest thing that is wrong:
 `revised_severity` may only go **down**. If you think a finding understates its own
 problem, `keep` it — raising severity is not yours.
 
-**`drop`** — the lines in front of you refute the claim. Not "the claim is
-debatable", not "I would not have filed this": the code does the opposite of what
-the finding says it does, and the window proves it.
+## What high severity means, and the one test that decides it
+
+**This section applies to findings rated `high`, and to nothing else.** A finding
+already at medium or low has not overstated itself — there is nothing left to
+correct, and lowering it further only removes it from a reader's view. If the
+severity in front of you is not `high`, skip everything below and leave it alone.
+
+For a finding rated high, apply this before you consider anything else about it, and
+whichever reviewer filed it.
+
+**Is the problem reachable in the code as written?**
+
+High severity means someone can do the bad thing today. A weakness that some check
+in these lines currently prevents is not high, however serious it would be if the
+check were gone.
+
+**If the finding's own body says a guard exists, it is not high.** A body that
+concedes the value is validated, whitelisted, escaped, checked against a fixed set,
+or otherwise constrained — and then argues the code is still wrong — is describing a
+hardening suggestion. That is `amend` to medium or low, every time.
+
+This is the evasion to watch, because it is written to sound like the opposite:
+
+> "Although the value is validated against `SORT_DIRECTIONS`, parameterisation is
+> the defence-in-depth standard and the validation could be removed later."
+
+Everything in that sentence is true and it is still not a high-severity finding.
+"Best practice", "defence in depth", "fragile pattern", and "could be weakened
+later" are all arguments about a future version of the code. The finding is a claim
+about this one. Rate it on what these lines do.
+
+Do not drop it — the advice may be worth taking. Lower it.
+
+**`drop`** — the lines in front of you refute the claim, and there is nothing true
+left in it. Not "the claim is debatable", not "I would not have filed this": the code
+does the opposite of what the finding says it does, and the window proves it.
+
+**A false title over a true body is an `amend`, not a `drop`.** These are written
+separately and the title is the part that overreaches. If the body still says
+something true about these lines — even something minor — rewrite the title to match
+it and keep the finding. Deleting it throws away the observation to punish the
+headline. `drop` is for a finding with nothing left once the false part is removed.
 
 ## Reading a condition before judging a claim about it
 
@@ -90,14 +133,11 @@ the original.** The security reviewer rated a checked `ORDER BY` interpolation
 medium; the architecture reviewer filed the same line as high SQL injection, and the
 reader saw the high one.
 
-So when a finding's subject belongs to a reviewer other than the one that filed it,
-**re-rate it on its own evidence rather than on the alarm in its wording.** Ask what
-these lines actually support:
-
-- an exploitable defect, reachable as written → high
-- a real weakness that a check currently prevents, or a hardening suggestion → medium
-  or low
-- a hypothetical, resting on a guard being removed later → low
+So a finding whose subject belongs to a reviewer other than the one that filed it is
+**corroborating evidence that its severity is inflated**, and the reachability test
+above is what settles it. Architecture filing an injection, style filing a missing
+auth check, security filing a naming problem — in each case, re-read what the lines
+support rather than the alarm in the wording.
 
 This is not a reason to drop it. A borrowed finding can still be true, and the
 reviewer that owns the subject may not have filed it at all. Fix the rating, keep
