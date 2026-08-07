@@ -1,0 +1,132 @@
+diff --git a/app/db.py b/app/db.py
+index 9ef9d4d..386fa87 100644
+--- a/app/db.py
++++ b/app/db.py
+@@ -28,7 +28,8 @@ def init_schema() -> None:
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 title TEXT NOT NULL,
+                 owner TEXT NOT NULL,
+-                done INTEGER NOT NULL DEFAULT 0
++                done INTEGER NOT NULL DEFAULT 0,
++                priority INTEGER NOT NULL DEFAULT 1
+             )
+             """
+         )
+@@ -37,7 +38,16 @@ def init_schema() -> None:
+ def list_tasks(owner: str) -> list[sqlite3.Row]:
+     with connect() as conn:
+         return conn.execute(
+-            "SELECT id, title, owner, done FROM tasks WHERE owner = ?", (owner,)
++            "SELECT id, title, owner, done, priority FROM tasks WHERE owner = ?",
++            (owner,),
++        ).fetchall()
++
++
++def list_tasks_sorted(owner: str, order: str) -> list[sqlite3.Row]:
++    with connect() as conn:
++        return conn.execute(
++            f"SELECT id, title, owner, done, priority FROM tasks "
++            f"WHERE owner = '{owner}' ORDER BY priority {order}"
+         ).fetchall()
+ 
+ 
+diff --git a/app/main.py b/app/main.py
+index 4a2f3f2..ccf66a8 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -4,8 +4,8 @@
+ 
+ from fastapi import FastAPI
+ 
+-from app import db
+-from app.models import TaskIn, TaskOut
++from app import db, priority
++from app.models import ImportIn, TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+ 
+@@ -30,3 +30,15 @@ def get_tasks(owner: str) -> list[TaskOut]:
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+     return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++
++
++@app.get("/tasks/{owner}/sorted", response_model=list[TaskOut])
++def get_tasks_sorted(owner: str, order: str = "DESC") -> list[TaskOut]:
++    rows = db.list_tasks_sorted(owner, order)
++    return [TaskOut(**dict(row)) for row in rows]
++
++
++@app.post("/tasks/{owner}/import")
++def import_tasks(owner: str, payload: ImportIn) -> dict:
++    rows = priority.bulk_import(owner, payload.blob)
++    return {"imported": len(rows), "tasks": rows}
+diff --git a/app/models.py b/app/models.py
+index 05f08e4..c6d06c2 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -7,6 +7,7 @@
+ 
+ class TaskIn(BaseModel):
+     title: str = Field(min_length=1, max_length=200)
++    priority: str = "normal"
+ 
+ 
+ class TaskOut(BaseModel):
+@@ -14,3 +15,8 @@ class TaskOut(BaseModel):
+     title: str
+     owner: str
+     done: bool
++    priority: int
++
++
++class ImportIn(BaseModel):
++    blob: str
+diff --git a/app/priority.py b/app/priority.py
+new file mode 100644
+index 0000000..be2565a
+--- /dev/null
++++ b/app/priority.py
+@@ -0,0 +1,42 @@
++"""Task priority handling and bulk import."""
++
++from __future__ import annotations
++
++from app import db
++
++LEVELS = ["low", "normal", "high", "urgent"]
++
++
++def parse_priority(raw: str) -> int:
++    p = raw.strip().lower()
++    if p not in LEVELS:
++        return 1
++    return LEVELS.index(p)
++
++
++def can_edit(owner: str, requester: str, is_admin: bool) -> bool:
++    """Whether ``requester`` may modify tasks belonging to ``owner``."""
++    if not requester or not owner:
++        return False
++    return requester == owner or is_admin
++
++
++def bulk_import(owner: str, blob: str) -> list[dict]:
++    out = []
++    for line in blob.splitlines():
++        if not line.strip():
++            continue
++        parts = line.split(",")
++        if len(parts) != 2:
++            continue
++        t = parts[0].strip()
++        d = parse_priority(parts[1])
++        if len(t) > 200:
++            t = t[:200]
++        with db.connect() as conn:
++            cur = conn.execute(
++                f"INSERT INTO tasks (title, owner, priority) "
++                f"VALUES ('{t}', '{owner}', {d})"
++            )
++            out.append({"id": cur.lastrowid, "title": t, "priority": d})
++    return out

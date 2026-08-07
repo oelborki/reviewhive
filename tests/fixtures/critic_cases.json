@@ -1,0 +1,185 @@
+{
+  "note": "Findings the reviewers actually filed, judged against the lines they were filed about. Eight come straight out of the `findings` table (the first live webhook review of demo PR #1, and round 2 of demo PR #5, which is the D12b reproduction); two are a security-agent run on sound_auth.diff captured whole, because that fixture has never been persisted. Nothing here was written to suit the prompt -- a fixture invented for a prompt measures the prompt against itself.\n\nTwo expectations, and `survives` is the one to read first. A finding left standing at the wrong severity is noise a reader can dismiss; a finding the critic deletes is gone, and nothing in the posted review records that it ever existed. Seven of the ten cases exist to make an over-eager critic score badly rather than well.\n\n`survives` = not dropped, and severity not lowered. Rewriting a title or body is allowed: those are the amendments the pass exists to make, and none of them destroys anything.\n`loses_high` = dropped, or kept below high. Either is a pass. Which of the two is right is a judgement the eval set deliberately does not force -- for sound_auth, advising 'fail at startup instead' at low severity is defensible, and only the high-severity bypass claim is false.\n\nNot covered, and worth saying rather than discovering later: no case *requires* a drop, so delete authority is permitted here and never demanded. That is on purpose. Every case in the recorded data that could justify a deletion can also be fixed by lowering the severity, and inventing one to exercise the delete path would be inventing the evidence.",
+  "cases": [
+    {
+      "id": "demo_pr/reports.py:40",
+      "expect": "survives",
+      "why": "One of two live XSS holes four lines apart with identical titles. Line 40 injects `owner`; line 44 injects `r['title']`. Dropping either hides a real vulnerability, and the identical titles are the invitation to do it.",
+      "fixture": "demo_pr.diff",
+      "finding": {
+        "file": "app/reports.py",
+        "line": 40,
+        "severity": "high",
+        "category": "xss",
+        "title": "HTML injection in report body",
+        "body": "The `owner` value is concatenated directly into HTML output without escaping. An attacker controlling the owner value can inject malicious HTML/JavaScript. Use `html.escape(owner)` or a templating engine with auto-escaping.",
+        "confidence": 0.9,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "demo_pr/reports.py:44",
+      "expect": "survives",
+      "why": "The other half of that pair. Its window contains line 40 as well, so a reader that keys on the title rather than the injected value sees a duplicate it has already judged.",
+      "fixture": "demo_pr.diff",
+      "finding": {
+        "file": "app/reports.py",
+        "line": 44,
+        "severity": "high",
+        "category": "xss",
+        "title": "HTML injection in report body",
+        "body": "The `r['title']` value is concatenated directly into HTML output without escaping. An attacker can inject malicious HTML/JavaScript through task titles. Use `html.escape(r['title'])` or a templating engine.",
+        "confidence": 0.9,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "demo_pr/auth.py:5",
+      "expect": "survives",
+      "why": "A live credential in the diff. Unambiguous, and the window shows the whole of it -- a critic that cannot keep this one keeps nothing.",
+      "fixture": "demo_pr.diff",
+      "finding": {
+        "file": "app/auth.py",
+        "line": 5,
+        "severity": "high",
+        "category": "secrets-in-code",
+        "title": "API secret hardcoded in source",
+        "body": "The secret key 'sk-demo-4f9a2c1e8b7d6350' is exposed in version control and will be visible to anyone with repository access. Move all secrets to environment variables or a secrets manager. Use `os.getenv('API_SECRET')` instead.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "demo_pr/main.py:44",
+      "expect": "survives",
+      "why": "An endpoint that mutates state with no authorization check at all.",
+      "fixture": "demo_pr.diff",
+      "finding": {
+        "file": "app/main.py",
+        "line": 44,
+        "severity": "high",
+        "category": "missing-authz-check",
+        "title": "Missing authorization check in done endpoint",
+        "body": "The `/tasks/{owner}/{id}/done` endpoint calls `db.mark(id, 1)` without verifying the caller owns the task or is authorized to modify it. An attacker can mark any task as done. Check that the caller owns the task before allowing the update.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "pr5_round2/main.py:35",
+      "expect": "survives",
+      "why": "The ungated /sorted endpoint. Filed by the lane that owns it, and the window shows the handler with nothing gating it.",
+      "fixture": "pr5_round2.diff",
+      "finding": {
+        "file": "app/main.py",
+        "line": 35,
+        "severity": "high",
+        "category": "missing-authorization",
+        "title": "No authorization check on sorted tasks endpoint",
+        "body": "The GET `/tasks/{owner}/sorted` endpoint accepts an owner path parameter but performs no authorization check. Any caller can retrieve sorted tasks for any owner. Although `list_tasks` (line 28) likely has the same issue, this endpoint is newly added. Extract the requester identity and verify they own the account or are an admin before querying tasks on their behalf.",
+        "confidence": 0.85,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "pr5_round2/db.py:57",
+      "expect": "survives",
+      "why": "The correct half of the D12b pair: the owning lane rating a checked interpolation medium rather than high. This is the rating that should survive, so downgrading it further is as wrong as leaving the poached one standing.",
+      "fixture": "pr5_round2.diff",
+      "finding": {
+        "file": "app/db.py",
+        "line": 57,
+        "severity": "medium",
+        "category": "sql-injection",
+        "title": "SQL injection via unvalidated string interpolation in ORDER BY clause",
+        "body": "The `list_tasks_sorted` function constructs a SQL query using f-string interpolation of the `direction` variable directly into the ORDER BY clause (line 57). Although the function validates that `direction` is in `SORT_DIRECTIONS`, this validation happens *after* the variable is stripped and uppercased but uses the original `order` parameter in the error message. More critically, the validated `direction` value is interpolated directly into the SQL string rather than passed as a parameter. While the validation mitigates the immediate risk here, this pattern is fragile and violates parameterized query best practices. Refactor to avoid string interpolation: use a whitelist dict mapping to pre-constructed query fragments or construct the query conditionally without interpolation.",
+        "confidence": 0.85,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "pr5_round2/main.py:7",
+      "expect": "survives",
+      "why": "The amend-rather-than-delete case. The title claims an unused import and it is false -- `priority.bulk_import` is called at line 43, and although that is 36 lines below this anchor it does appear in a neighbouring finding's window, so the critic can and does see it. The body is a different statement and a true one: the module is used in exactly one function. A finding whose title overreaches a body that still says something true is an amendment; deleting it throws away the observation to punish the headline.",
+      "fixture": "pr5_round2.diff",
+      "finding": {
+        "file": "app/main.py",
+        "line": 7,
+        "severity": "low",
+        "category": "unused-import",
+        "title": "Unused import: priority module",
+        "body": "The import of `priority` at line 7 is added but the module is only used in `import_tasks`. Move the import into that function to keep dependencies visible and allow for lazy loading if needed. However, this is minor; check whether this pattern is already established in the codebase.",
+        "confidence": 0.6,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "pr5_round2/db.py:49",
+      "expect": "loses_high",
+      "why": "D12b. Architecture filed a whitelisted ORDER BY as high `sql-injection`, outside its lane, while security -- which owns the category -- filed the same defect as medium. Its own body concedes the value is validated and rests on the whitelist being weakened later. The window contains the SORT_DIRECTIONS check that settles it.",
+      "fixture": "pr5_round2.diff",
+      "finding": {
+        "file": "app/db.py",
+        "line": 49,
+        "severity": "high",
+        "category": "sql-injection",
+        "title": "SQL injection risk in order-by clause",
+        "body": "The `list_tasks_sorted` function interpolates the `direction` variable directly into the SQL query using f-string. Although the value is validated against `SORT_DIRECTIONS`, parameterization is the defense-in-depth standard and the validation could be removed later. Use a whitelist dictionary mapping direction names to SQL keywords instead: `{\"ASC\": \"ASC\", \"DESC\": \"DESC\"}[direction]`.",
+        "confidence": 0.85,
+        "sources": [
+          "architecture"
+        ]
+      }
+    },
+    {
+      "id": "sound_auth/main.py:36",
+      "expect": "loses_high",
+      "why": "D10, and the shape every measured false positive shares. Line 37 reads `if not expected or not hmac.compare_digest(...)`, so an unset key makes `not expected` true, the `or` short-circuits, and the request is rejected. The body quotes the compare_digest half and never mentions the first clause. The whole condition is inside the window.",
+      "fixture": "sound_auth.diff",
+      "finding": {
+        "file": "app/main.py",
+        "line": 36,
+        "severity": "high",
+        "category": "authentication-bypass",
+        "title": "API key missing from environment defaults to empty string",
+        "body": "When `NOTIFY_API_KEY` is not set, `os.environ.get()` returns an empty string, which then passes the `hmac.compare_digest()` check if the header is also empty. This allows unauthenticated requests to succeed. Set a non-empty default or raise an error during startup if the key is missing: `os.environ[\"NOTIFY_API_KEY\"]` will fail fast if the secret is not configured.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "sound_auth/main.py:34",
+      "expect": "loses_high",
+      "why": "The same misreading anchored at the signature rather than the assignment, which is why the window has to reach past the line the finding names. 'The check will fail to reject it' is the claim, and the check is three lines below.",
+      "fixture": "sound_auth.diff",
+      "finding": {
+        "file": "app/main.py",
+        "line": 34,
+        "severity": "high",
+        "category": "authentication-bypass",
+        "title": "API key header has empty string default, allowing bypass",
+        "body": "The `x_api_key` parameter defaults to an empty string if the header is missing. When combined with the comparison logic, a client that omits the `X-API-Key` header entirely will have `x_api_key=\"\"`, and if `NOTIFY_API_KEY` is also empty or unset, the check will fail to reject it. Require the header to be present by removing the `default` parameter, or use `default=None` and explicitly reject `None` values.",
+        "confidence": 0.85,
+        "sources": [
+          "security"
+        ]
+      }
+    }
+  ]
+}

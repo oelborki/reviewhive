@@ -75,6 +75,18 @@ def render_summary(result: ReviewResult) -> str:
             f"below the reporting thresholds, or beyond the posting cap._"
         )
 
+    if result.retracted_count:
+        # Its own line, not added to the suppression count. A suppressed finding is
+        # one this review stands behind and had no room for; a retracted one is a
+        # claim it checked and withdrew. Saying so is also the only thing that makes
+        # an over-eager critic visible on a real pull request — a pass that deletes
+        # too much and says nothing looks exactly like a clean diff.
+        lines.append("")
+        lines.append(
+            f"_{result.retracted_count} finding(s) withdrawn on review — "
+            f"the lines they named did not support the claim._"
+        )
+
     unplaced = _unplaced_note(result)
     if unplaced:
         lines.append("")
@@ -108,6 +120,12 @@ def _no_findings_verdict(result: ReviewResult) -> str:
     threshold removed them it is a claim about the *configuration*, and saying the
     former would be false — so the qualified wording is load-bearing, not padding.
     The count itself follows in the suppression line.
+
+    A retraction is deliberately *not* qualified the same way. A suppressed finding
+    is one this review stands behind and had no room for, so a clean verdict over
+    the top of it would overstate. A retracted one is a claim the review checked and
+    withdrew, and "no issues found" is then exactly what it means. The count still
+    appears on its own line, because a reader has to be able to see the pass act.
     """
     scope = " in the files reviewed" if result.skipped_files else ""
     if result.suppressed_count:

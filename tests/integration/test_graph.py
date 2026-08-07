@@ -21,7 +21,10 @@ async def test_runs_all_three_agents(diff_text, settings) -> None:
 
     result = await review_diff(diff_text, client, settings)
 
-    assert sorted(client.parse_calls) == ["architecture", "security", "style"]
+    # Spelled out rather than filtered to the reviewers: this is the one place that
+    # says what a review costs in calls, and a new stage should have to change it
+    # rather than hide behind a filter.
+    assert sorted(client.parse_calls) == ["CriticVerdicts", "architecture", "security", "style"]
     assert len(result.findings) == 1
     assert result.findings[0].sources == ["security"]
 

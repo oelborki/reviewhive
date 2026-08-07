@@ -119,6 +119,11 @@ class SqlReviewStore:
                 .values(
                     status="succeeded",
                     suppressed_count=result.suppressed_count,
+                    # Counted apart from suppression on purpose: one is a finding
+                    # this review stands behind and had no room for, the other is a
+                    # claim the critic judged wrong. A query for "how often is the
+                    # critic deleting things" cannot be asked of a single total.
+                    retracted_count=result.retracted_count,
                     skipped_files=result.skipped_files,
                     truncated_files=result.truncated_files,
                     # Priced now, not on read: the figure is what the run cost at
@@ -307,4 +312,8 @@ def _finding_row(review_id: UUID, ordinal: int, finding) -> FindingRow:
         body=finding.body,
         confidence=finding.confidence,
         sources=list(finding.sources),
+        # Whether the critic pass rewrote this. Stored so the pass can be judged
+        # against what it did to real reviews rather than against a probe score --
+        # the same reason `sources` records the lane.
+        amended=finding.amended,
     )

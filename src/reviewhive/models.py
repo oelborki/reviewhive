@@ -25,7 +25,7 @@ AgentName = Literal["security", "style", "architecture"]
 # `MergedFinding.sources`, and a classifier must never be attributable as the
 # source of a finding. Cost telemetry is a different question from authorship.
 CallAgent = Literal[
-    "security", "style", "architecture", "intent", "answer", "reconsider", "merge"
+    "security", "style", "architecture", "intent", "answer", "reconsider", "merge", "critic"
 ]
 
 
@@ -108,6 +108,17 @@ class MergedFinding(BaseModel):
             "were independent — the reviewers see the same diff and converge."
         )
     )
+    amended: bool = Field(
+        default=False,
+        description=(
+            "The critic pass changed this finding's severity, title or body. "
+            "Recorded so the pass can be judged against what it actually did to "
+            "real reviews rather than against a probe score — the same reason "
+            "`sources` records the lane. It is deliberately not part of `sources`: "
+            "editing a finding is not authoring one, and a critic must never be "
+            "attributable as the reviewer who raised it."
+        ),
+    )
 
     @property
     def agreement(self) -> int:
@@ -154,6 +165,19 @@ class ReviewResult(BaseModel):
         default=0,
         description=(
             "Findings that survived dedup but were withheld by a threshold or the posting cap."
+        ),
+    )
+    retracted_count: int = Field(
+        default=0,
+        description=(
+            "Findings the critic pass withdrew. Counted separately from "
+            "`suppressed_count` rather than folded into it, because the two are not "
+            "the same claim: a suppressed finding is one this review stands behind "
+            "and had no room for, and a retracted one is a claim the pass judged "
+            "wrong. Rolling them together would also make the suppression line — "
+            "'below the reporting thresholds, or beyond the posting cap' — untrue. "
+            "Disclosed for the same reason everything else here is: an over-eager "
+            "critic is invisible on a live pull request unless the count is shown."
         ),
     )
     skipped_files: list[str] = Field(

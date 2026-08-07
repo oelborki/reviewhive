@@ -1,0 +1,422 @@
+diff --git a/app/auth.py b/app/auth.py
+new file mode 100644
+index 0000000..403a362
+--- /dev/null
++++ b/app/auth.py
+@@ -0,0 +1,19 @@
++"""Who may act on whose tasks."""
++
++from __future__ import annotations
++
++
++def can_access(owner: str, requester: str, is_admin: bool = False) -> bool:
++    """Whether ``requester`` may read or modify tasks belonging to ``owner``.
++
++    Args:
++        owner: The account the tasks belong to.
++        requester: The authenticated caller. Empty means unauthenticated.
++        is_admin: Whether the caller holds the administrator role.
++
++    Returns:
++        True if the caller owns the tasks or is an administrator.
++    """
++    if not requester or not owner:
++        return False
++    return requester == owner or is_admin
+diff --git a/app/db.py b/app/db.py
+index 9ef9d4d..1ff7f6c 100644
+--- a/app/db.py
++++ b/app/db.py
+@@ -28,7 +28,8 @@ def init_schema() -> None:
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 title TEXT NOT NULL,
+                 owner TEXT NOT NULL,
+-                done INTEGER NOT NULL DEFAULT 0
++                done INTEGER NOT NULL DEFAULT 0,
++                priority INTEGER NOT NULL DEFAULT 1
+             )
+             """
+         )
+@@ -37,10 +38,45 @@ def init_schema() -> None:
+ def list_tasks(owner: str) -> list[sqlite3.Row]:
+     with connect() as conn:
+         return conn.execute(
+-            "SELECT id, title, owner, done FROM tasks WHERE owner = ?", (owner,)
++            "SELECT id, title, owner, done, priority FROM tasks WHERE owner = ?",
++            (owner,),
+         ).fetchall()
+ 
+ 
++# A sort direction cannot be bound as a parameter, so the query is not built at
++# all: each direction has its own complete statement and the caller's input only
++# ever selects between them.
++SORTED_QUERIES = {
++    "ASC": (
++        "SELECT id, title, owner, done, priority FROM tasks "
++        "WHERE owner = ? ORDER BY priority ASC"
++    ),
++    "DESC": (
++        "SELECT id, title, owner, done, priority FROM tasks "
++        "WHERE owner = ? ORDER BY priority DESC"
++    ),
++}
++
++
++def list_tasks_sorted(owner: str, order: str) -> list[sqlite3.Row]:
++    """List one owner's tasks by priority.
++
++    Args:
++        owner: The account the tasks belong to.
++        order: ``ASC`` or ``DESC``, case-insensitive.
++
++    Raises:
++        ValueError: If ``order`` is not a supported direction.
++    """
++    query = SORTED_QUERIES.get(order.strip().upper())
++    if query is None:
++        # The rejected value is not echoed back: it came from the caller and has
++        # no place in a message that may reach a log or another user.
++        raise ValueError("unsupported sort direction")
++    with connect() as conn:
++        return conn.execute(query, (owner,)).fetchall()
++
++
+ def create_task(title: str, owner: str) -> int:
+     with connect() as conn:
+         cursor = conn.execute(
+diff --git a/app/main.py b/app/main.py
+index 4a2f3f2..17050f5 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -2,14 +2,27 @@
+ 
+ from __future__ import annotations
+ 
+-from fastapi import FastAPI
++from fastapi import Depends, FastAPI, Header, HTTPException
+ 
+-from app import db
+-from app.models import TaskIn, TaskOut
++from app import auth, db, priority
++from app.models import ImportIn, ImportOut, TaskIn, TaskOut
+ 
+ app = FastAPI(title="tasks")
+ 
+ 
++def requester(x_requester: str = Header(default="")) -> str:
++    """The authenticated caller, from the ``X-Requester`` header."""
++    if not x_requester:
++        raise HTTPException(status_code=401, detail="unauthenticated")
++    return x_requester
++
++
++def require_access(owner: str, caller: str) -> None:
++    """Reject a caller who may not act on ``owner``'s tasks."""
++    if not auth.can_access(owner, caller):
++        raise HTTPException(status_code=403, detail="forbidden")
++
++
+ @app.on_event("startup")
+ def startup() -> None:
+     db.init_schema()
+@@ -23,10 +36,37 @@ def health() -> dict[str, str]:
+ @app.get("/tasks/{owner}", response_model=list[TaskOut])
+ def get_tasks(owner: str) -> list[TaskOut]:
+     rows = db.list_tasks(owner)
+-    return [TaskOut(**dict(row)) for row in rows]
++    return [TaskOut.from_row(row) for row in rows]
+ 
+ 
+ @app.post("/tasks/{owner}", response_model=TaskOut, status_code=201)
+ def post_task(owner: str, payload: TaskIn) -> TaskOut:
+     task_id = db.create_task(payload.title, owner)
+-    return TaskOut(id=task_id, title=payload.title, owner=owner, done=False)
++    return TaskOut(
++        id=task_id, title=payload.title, owner=owner, done=False, priority=payload.priority
++    )
++
++
++@app.get("/tasks/{owner}/sorted", response_model=list[TaskOut])
++def get_tasks_sorted(
++    owner: str, order: str = "DESC", caller: str = Depends(requester)
++) -> list[TaskOut]:
++    require_access(owner, caller)
++    try:
++        rows = db.list_tasks_sorted(owner, order)
++    except ValueError as exc:
++        raise HTTPException(status_code=400, detail=str(exc)) from exc
++    return [TaskOut.from_row(row) for row in rows]
++
++
++@app.post("/tasks/{owner}/import", response_model=ImportOut)
++def import_tasks(
++    owner: str, payload: ImportIn, caller: str = Depends(requester)
++) -> ImportOut:
++    require_access(owner, caller)
++    stored, skipped = priority.bulk_import(owner, payload.blob)
++    return ImportOut(
++        imported=len(stored),
++        skipped=skipped,
++        tasks=[TaskOut.from_row(row) for row in stored],
++    )
+diff --git a/app/models.py b/app/models.py
+index 05f08e4..a688ecd 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -2,11 +2,35 @@
+ 
+ from __future__ import annotations
+ 
++from collections.abc import Mapping
++from typing import Any
++
+ from pydantic import BaseModel, Field
+ 
++# Priority is a level name at the API boundary and an index in the database. The
++# vocabulary lives here so that both sides agree on it.
++LEVELS = ["low", "normal", "high", "urgent"]
++DEFAULT_LEVEL = "normal"
++
++
++def level_index(name: str) -> int:
++    """Map a level name to its stored index, falling back to the default."""
++    cleaned = name.strip().lower()
++    if cleaned not in LEVELS:
++        return LEVELS.index(DEFAULT_LEVEL)
++    return LEVELS.index(cleaned)
++
++
++def level_name(index: int) -> str:
++    """Map a stored index back to its level name."""
++    if 0 <= index < len(LEVELS):
++        return LEVELS[index]
++    return DEFAULT_LEVEL
++
+ 
+ class TaskIn(BaseModel):
+     title: str = Field(min_length=1, max_length=200)
++    priority: str = DEFAULT_LEVEL
+ 
+ 
+ class TaskOut(BaseModel):
+@@ -14,3 +38,31 @@ class TaskOut(BaseModel):
+     title: str
+     owner: str
+     done: bool
++    # A level name, matching TaskIn.priority. The database stores the index.
++    priority: str = DEFAULT_LEVEL
++
++    @classmethod
++    def from_row(cls, row: Mapping[str, Any]) -> TaskOut:
++        """Build a response from a database row, naming the stored priority.
++
++        Takes any mapping rather than ``sqlite3.Row`` so a caller holding rows it
++        has just written does not have to read them back to answer with them.
++        """
++        return cls(
++            id=row["id"],
++            title=row["title"],
++            owner=row["owner"],
++            done=bool(row["done"]),
++            priority=level_name(row["priority"]),
++        )
++
++
++class ImportIn(BaseModel):
++    blob: str
++
++
++class ImportOut(BaseModel):
++    imported: int
++    # Rows the parser could not read. Reported rather than silently dropped.
++    skipped: int
++    tasks: list[TaskOut]
+diff --git a/app/priority.py b/app/priority.py
+new file mode 100644
+index 0000000..ff9845e
+--- /dev/null
++++ b/app/priority.py
+@@ -0,0 +1,90 @@
++"""Bulk import of tasks from a CSV blob."""
++
++from __future__ import annotations
++
++import csv
++import io
++from dataclasses import dataclass
++
++from app import db
++from app.models import level_index
++
++MAX_TITLE_LENGTH = 200
++COLUMNS_PER_ROW = 2
++
++
++@dataclass(frozen=True)
++class ParsedRows:
++    """The result of reading a blob: what was understood, and how much was not."""
++
++    rows: list[tuple[str, int]]
++    skipped: int
++
++
++def parse_rows(blob: str) -> ParsedRows:
++    """Read ``title,priority`` records out of a CSV blob.
++
++    Pure: no database access, so the parsing rules can be tested on their own.
++    A record is skipped when it has the wrong number of columns or an empty
++    title, and the count is returned rather than discarded so the caller can
++    report it.
++
++    Args:
++        blob: The uploaded text, one record per line.
++
++    Returns:
++        The rows that parsed, as ``(title, priority index)``, and a count of
++        those that did not.
++    """
++    rows: list[tuple[str, int]] = []
++    skipped = 0
++
++    for record in csv.reader(io.StringIO(blob)):
++        if not record or not any(field.strip() for field in record):
++            continue
++        if len(record) != COLUMNS_PER_ROW:
++            skipped += 1
++            continue
++
++        title = record[0].strip()
++        if not title:
++            skipped += 1
++            continue
++
++        rows.append((title[:MAX_TITLE_LENGTH], level_index(record[1])))
++
++    return ParsedRows(rows=rows, skipped=skipped)
++
++
++def bulk_import(owner: str, blob: str) -> tuple[list[dict], int]:
++    """Parse a blob and store its tasks for ``owner``.
++
++    The caller is responsible for checking that the requester may write to
++    ``owner`` -- this function does no authorisation of its own.
++
++    Every row is written through one connection, so the import either commits
++    as a whole or leaves nothing behind.
++
++    Returns:
++        The stored tasks, and the number of records that could not be read.
++    """
++    parsed = parse_rows(blob)
++    stored: list[dict] = []
++
++    with db.connect() as conn:
++        for title, priority_index in parsed.rows:
++            cursor = conn.execute(
++                "INSERT INTO tasks (title, owner, priority) VALUES (?, ?, ?)",
++                (title, owner, priority_index),
++            )
++            stored.append(
++                {
++                    "id": cursor.lastrowid,
++                    "title": title,
++                    "owner": owner,
++                    "done": 0,
++                    "priority": priority_index,
++                }
++            )
++
++    return stored, parsed.skipped
+diff --git a/tests/test_auth.py b/tests/test_auth.py
+new file mode 100644
+index 0000000..469e1dd
+--- /dev/null
++++ b/tests/test_auth.py
+@@ -0,0 +1,24 @@
++"""Tests for who may act on whose tasks."""
++
++from __future__ import annotations
++
++import pytest
++
++from app.auth import can_access
++
++
++def test_an_owner_may_reach_their_own_tasks() -> None:
++    assert can_access("ana", "ana") is True
++
++
++def test_a_stranger_may_not() -> None:
++    assert can_access("ana", "bo") is False
++
++
++def test_an_admin_may_reach_anyone() -> None:
++    assert can_access("ana", "bo", is_admin=True) is True
++
++
++@pytest.mark.parametrize("owner, caller", [("", "ana"), ("ana", ""), ("", "")])
++def test_a_missing_identity_is_refused_even_for_an_admin(owner: str, caller: str) -> None:
++    assert can_access(owner, caller, is_admin=True) is False
+diff --git a/tests/test_priority.py b/tests/test_priority.py
+new file mode 100644
+index 0000000..c212468
+--- /dev/null
++++ b/tests/test_priority.py
+@@ -0,0 +1,57 @@
++"""Tests for CSV parsing and the priority vocabulary."""
++
++from __future__ import annotations
++
++import pytest
++
++from app.models import level_index, level_name
++from app.priority import parse_rows
++
++
++def test_reads_title_and_priority() -> None:
++    parsed = parse_rows("write tests,high")
++
++    assert parsed.rows == [("write tests", 2)]
++    assert parsed.skipped == 0
++
++
++def test_blank_lines_are_not_counted_as_skipped() -> None:
++    parsed = parse_rows("a,low\n\n\nb,high")
++
++    assert len(parsed.rows) == 2
++    assert parsed.skipped == 0
++
++
++@pytest.mark.parametrize("blob", ["only-one-column", "a,b,c", ",normal"])
++def test_malformed_records_are_counted_not_dropped_silently(blob: str) -> None:
++    parsed = parse_rows(blob)
++
++    assert parsed.rows == []
++    assert parsed.skipped == 1
++
++
++def test_an_unknown_priority_falls_back_to_the_default() -> None:
++    parsed = parse_rows("a,nonsense")
++
++    assert parsed.rows == [("a", level_index("normal"))]
++
++
++def test_long_titles_are_truncated_to_the_column_limit() -> None:
++    parsed = parse_rows(f"{'x' * 300},low")
++
++    assert len(parsed.rows[0][0]) == 200
++
++
++def test_quoted_commas_stay_inside_the_title() -> None:
++    parsed = parse_rows('"buy milk, eggs",normal')
++
++    assert parsed.rows[0][0] == "buy milk, eggs"
++
++
++@pytest.mark.parametrize("name", ["low", "normal", "high", "urgent"])
++def test_level_names_round_trip(name: str) -> None:
++    assert level_name(level_index(name)) == name
++
++
++def test_an_out_of_range_index_reads_as_the_default() -> None:
++    assert level_name(99) == "normal"

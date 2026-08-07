@@ -18,6 +18,7 @@ from decimal import Decimal
 from sqlalchemy import (
     ARRAY,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -40,7 +41,9 @@ REVIEW_SOURCES = ("cli", "webhook", "mention")
 # Everything that can spend tokens against a review row, which is wider than the
 # three reviewers. Mirrors `models.CallAgent`; `AGENT_NAMES` stays the reviewers
 # alone because that set also types who can be credited as a finding's source.
-CALL_AGENTS = ("security", "style", "architecture", "intent", "answer", "reconsider", "merge")
+CALL_AGENTS = (
+    "security", "style", "architecture", "intent", "answer", "reconsider", "merge", "critic",
+)
 AGENT_NAMES = ("security", "style", "architecture")
 SEVERITIES = ("high", "medium", "low")
 
@@ -131,6 +134,13 @@ class ReviewRow(Base):
     focus: Mapped[str | None] = mapped_column(Text)
 
     suppressed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Findings the critic pass withdrew. A separate column rather than part of
+    # suppressed_count, because the two are different claims: a suppressed finding
+    # is one this review stands behind and had no room for, a retracted one is a
+    # claim the pass judged wrong. Rolled together, "is the critic deleting too
+    # much" would be a question the table cannot answer.
+    retracted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Stored as the human-readable strings budget.py already builds, e.g.
     # "package-lock.json (lockfile)". Not parsed back into columns: those strings
@@ -252,6 +262,13 @@ class FindingRow(Base):
     # A Postgres array rather than JSONB: it is a short list of closed-set strings
     # and `'security' = ANY(sources)` is the query anyone would actually write.
     sources: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+
+    # The critic pass rewrote this finding's severity, title or body. Not part of
+    # `sources`: editing a finding is not authoring one, and that column types who
+    # may be credited as a reviewer. Stored because the pass is otherwise
+    # unmeasurable after the fact -- `where amended` is the query that asks what it
+    # has actually been doing to real reviews.
+    amended: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     review: Mapped[ReviewRow] = relationship(back_populates="findings")
 

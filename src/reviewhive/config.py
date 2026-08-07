@@ -80,6 +80,25 @@ class Settings(BaseSettings):
     # on one file, and a defect-dense diff would otherwise send a very large call.
     merge_max_pairs: int = 24
 
+    # --- Critic ---
+    # How many lines either side of a finding's anchor are shown to the critic.
+    #
+    # Ten, and it was measured rather than picked. Six is the intuitive number and
+    # it is too small: on demo PR #5 the architecture finding anchors at `db.py:49`,
+    # the function signature, while the interpolation its claim rests on is at line
+    # 57 — eight lines below. A window that stops short of the evidence makes the
+    # critic guess, and guessing is the one thing it must not do. The same reasoning
+    # already set `merge_line_window` to 8: a finding anchored at a signature and the
+    # line it is really about can be several apart.
+    critic_context_radius: int = 10
+    # On. The pass costs one cheap call to check each finding against the lines it
+    # is about. Turning it off is a supported way to save that call; the review is
+    # then exactly what it was before the pass existed.
+    enable_critic: bool = True
+    # A cost guard, not a correctness one. A defect-dense diff can produce twenty-
+    # five findings before ranking, and each one carries a window.
+    critic_max_findings: int = 30
+
     # --- Agent call behaviour ---
     agent_max_tokens: int = 8_000
     agent_timeout_seconds: float = 120.0
