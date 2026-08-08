@@ -91,6 +91,16 @@ class Settings(BaseSettings):
     # already set `merge_line_window` to 8: a finding anchored at a signature and the
     # line it is really about can be several apart.
     critic_context_radius: int = 10
+    # A file whose diff is at most this many lines is shown to the critic whole,
+    # once, with all of its findings listed against it. Above it, each finding falls
+    # back to its own window.
+    #
+    # Whole files are the default because a window is bounded by a line count and a
+    # claim is not: on demo PR #7 a finding at line 96 was refuted by a function at
+    # line 58, and a ten-line window showed the pass everything except the thing that
+    # settled it. 200 covers every file in every fixture here, and grouping means a
+    # defect-dense file costs *less* than sending overlapping slices of it.
+    critic_max_file_lines: int = 200
     # On. The pass costs one cheap call to check each finding against the lines it
     # is about. Turning it off is a supported way to save that call; the review is
     # then exactly what it was before the pass existed.

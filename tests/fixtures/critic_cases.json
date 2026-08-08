@@ -1,5 +1,5 @@
 {
-  "note": "Findings the reviewers actually filed, judged against the lines they were filed about. Eight come straight out of the `findings` table (the first live webhook review of demo PR #1, and round 2 of demo PR #5, which is the D12b reproduction); two are a security-agent run on sound_auth.diff captured whole, because that fixture has never been persisted. Nothing here was written to suit the prompt -- a fixture invented for a prompt measures the prompt against itself.\n\nTwo expectations, and `survives` is the one to read first. A finding left standing at the wrong severity is noise a reader can dismiss; a finding the critic deletes is gone, and nothing in the posted review records that it ever existed. Seven of the ten cases exist to make an over-eager critic score badly rather than well.\n\n`survives` = not dropped, and severity not lowered. Rewriting a title or body is allowed: those are the amendments the pass exists to make, and none of them destroys anything.\n`loses_high` = dropped, or kept below high. Either is a pass. Which of the two is right is a judgement the eval set deliberately does not force -- for sound_auth, advising 'fail at startup instead' at low severity is defensible, and only the high-severity bypass claim is false.\n\nNot covered, and worth saying rather than discovering later: no case *requires* a drop, so delete authority is permitted here and never demanded. That is on purpose. Every case in the recorded data that could justify a deletion can also be fixed by lowering the severity, and inventing one to exercise the delete path would be inventing the evidence.",
+  "note": "Findings the reviewers actually filed, judged against the lines they were filed about. Eight come straight out of the `findings` table (the first live webhook review of demo PR #1, and round 2 of demo PR #5, which is the D12b reproduction); two are a security-agent run on sound_auth.diff captured whole, because that fixture has never been persisted. Nothing here was written to suit the prompt -- a fixture invented for a prompt measures the prompt against itself.\n\nTwo expectations, and `survives` is the one to read first. A finding left standing at the wrong severity is noise a reader can dismiss; a finding the critic deletes is gone, and nothing in the posted review records that it ever existed. Seven of the ten cases exist to make an over-eager critic score badly rather than well.\n\n`survives` = not dropped, and severity not lowered. Rewriting a title or body is allowed: those are the amendments the pass exists to make, and none of them destroys anything.\n`loses_high` = dropped, or kept below high. Either is a pass. Which of the two is right is a judgement the eval set deliberately does not force -- for sound_auth, advising 'fail at startup instead' at low severity is defensible, and only the high-severity bypass claim is false.\n\nNot covered, and worth saying rather than discovering later: no case *requires* a drop, so delete authority is permitted here and never demanded. That is on purpose. Every case in the recorded data that could justify a deletion can also be fixed by lowering the severity, and inventing one to exercise the delete path would be inventing the evidence.\n\nTwo cases added 2026-08-07 from demo PR #7, both high-severity security claims that are false and that the pass kept. They are the first cases where the refutation is not simply a line or two below the anchor, and they fail for different reasons, so they must be read separately:\n`share_unverified/share.py:41` -- the refuting line is the anchor's own neighbour and inside the window, and the finding's *body* contradicts its title outright ('the signature is computed over task_id:owner:days'). Nothing was hidden from the pass.\n`share_verified/share.py:96` -- the refutation is `verify()` at line 58, which a ten-line window excludes. Here the pass followed its own rule correctly and still produced the wrong answer.\nBoth were filed by the security lane on real diffs, so neither is poaching.\n\nA third expectation, `refuted`, was added 2026-08-07: the claim is false and must not stand as written, but either an amendment or a withdrawal is a correct answer. It exists because `survives` and `loses_high` between them could not express 'this low-severity claim is simply untrue', which left the set with no case demanding action below high severity.",
   "cases": [
     {
       "id": "demo_pr/reports.py:40",
@@ -111,8 +111,8 @@
     },
     {
       "id": "pr5_round2/main.py:7",
-      "expect": "survives",
-      "why": "The amend-rather-than-delete case. The title claims an unused import and it is false -- `priority.bulk_import` is called at line 43, and although that is 36 lines below this anchor it does appear in a neighbouring finding's window, so the critic can and does see it. The body is a different statement and a true one: the module is used in exactly one function. A finding whose title overreaches a body that still says something true is an amendment; deleting it throws away the observation to punish the headline.",
+      "expect": "refuted",
+      "why": "The title claims an unused import and it is false -- `priority.bulk_import` is called at line 43 of the same file. This was labelled `survives` while the pass could only see ten lines and had no way to check it; with the whole file in front of it the claim is refutable, and a false headline is the finding as far as a reader of the summary index is concerned. Either correcting the title or withdrawing it passes; leaving it as written does not. The label changed because the design changed, not because the model disagreed with it.",
       "fixture": "pr5_round2.diff",
       "finding": {
         "file": "app/main.py",
@@ -178,6 +178,60 @@
         "confidence": 0.85,
         "sources": [
           "security"
+        ]
+      }
+    },
+    {
+      "id": "share_unverified/share.py:41",
+      "expect": "loses_high",
+      "why": "The title says the payload omits task_id; line 41 is `payload = f\"{task_id}:{owner}:{days}\"` and the body itself says the signature is computed over task_id:owner:days. The claim is refuted by its own body and by the line it is anchored beside, and the pass kept it at high anyway.",
+      "fixture": "share_unverified.diff",
+      "finding": {
+        "file": "app/share.py",
+        "line": 41,
+        "severity": "high",
+        "category": "signature-bypass",
+        "title": "Signature payload does not include task_id in HMAC",
+        "body": "The signature is computed over `task_id:owner:days`, but the task_id is not included in the query string sent to the client. An attacker can take a valid signature for task 7 and reuse it to access task 8 by changing only the task_id in the URL. The signature must cover all parameters that identify the resource. Include task_id in the HMAC payload and verify it matches on the server side during link validation.",
+        "confidence": 0.95,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "share_verified/share.py:96",
+      "expect": "loses_high",
+      "why": "Posted live on demo PR #7. `verify()` at line 58 recomputes the signature from the task_id it is given, so a link edited in the path does not verify and the bypass described cannot happen. The soft point underneath -- a signed value carried in the path invites a careless verifier -- is fair at low; the high rests on the false inference. The refutation is 38 lines from the anchor, so a ten-line window never showed it.",
+      "fixture": "share_verified.diff",
+      "finding": {
+        "file": "app/share.py",
+        "line": 96,
+        "severity": "high",
+        "category": "authentication-bypass",
+        "title": "task_id is not included in the signed query string",
+        "body": "The `make_link()` function signs the task_id as part of the payload but does not include it in the returned query string. This allows an attacker to modify the task_id parameter in the URL after receiving a valid link, and the signature will still verify because it was never part of the authenticated query parameters. Include task_id in the query string: `urlencode({\"task_id\": task_id, \"owner\": owner, \"days\": days, \"sig\": signature})`.",
+        "confidence": 0.9,
+        "sources": [
+          "security"
+        ]
+      }
+    },
+    {
+      "id": "share_unverified/share.py:41-true",
+      "expect": "survives",
+      "why": "The sharpest discrimination case in the set: the same line as share_unverified/share.py:41, one claim false and one true. The payload really is joined on a colon, so an owner containing one can be rearranged into different parameters that sign identically -- nobody planted this and it was found live on demo PR #7. A pass that keys on the location, or that learns 'claims about this payload are wrong', gets exactly one of the two right.",
+      "fixture": "share_unverified.diff",
+      "finding": {
+        "file": "app/share.py",
+        "line": 41,
+        "severity": "medium",
+        "category": "readability",
+        "title": "Payload format is fragile and undocumented",
+        "body": "The colon-separated payload format in the sign() function is implicit and could break if any parameter contains a colon. Document the format clearly or use a more robust serialization method. Consider whether this format is intentional or if a structured approach (like JSON) would be safer.",
+        "confidence": 0.8,
+        "sources": [
+          "style"
         ]
       }
     }
